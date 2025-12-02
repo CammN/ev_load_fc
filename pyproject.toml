@@ -1,0 +1,27 @@
+[project]
+name = "ev-load-fc"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "catboost>=1.2.8",
+    "duckdb>=1.4.1",
+    "lightgbm>=4.6.0",
+    "matplotlib>=3.10.7",
+    "nbformat>=5.10.4",
+    "numpy>=2.3.3",
+    "optuna>=4.6.0",
+    "pandas>=2.3.3",
+    "pathlib>=1.0.1",
+    "pmdarima>=2.1.0",
+    "prophet>=1.2.1",
+    "shap>=0.49.1",
+    "sktime>=0.39.0",
+    "statsmodels>=0.14.5",
+    "word2number>=1.1",
+    "xgboost>=3.1.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
