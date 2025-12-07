@@ -1,0 +1,46 @@
+
+project:
+  name: ev_load_fc
+  seed: 42
+
+paths:
+  # Data paths
+  raw_data: "data/01_raw"
+  interim_data: "data/02_interim"
+  processed_data: "data/03_processed"
+  # Model paths
+  exp_models: "models/experiments"
+  prod_models: "models/production"
+
+data:
+  # Original raw data
+  ev_filename: "EVChargingStationUsage.csv"
+  weather_filename: "WeatherEvents_Aug16_Dec20_Publish.csv"
+  traffic_filename: "TrafficEvents_Aug16_Dec20_Publish.csv"
+  # Interim
+  ev_filt_filename: "ev_data_filt_date.csv"
+  weather_filt_filename: "weather_data_filt_date_city.csv"
+  traffic_filt_filename: "traffic_data_filt_date_city.csv"
+
+  aggregation_period: "1h"
+  mad_thresholds: 4
+
+preprocessing:
+  # Filters to restrict raw data to model set
+  raw_filters:
+    min_timestamp: "2017-08-01"         
+    max_timestamp: "2020-03-01"         
+    weather_cities:
+      - "Palo Alto"
+      - "Mountain View"
+      - "San Carlos"
+    traffic_cities:
+      - "Palo Alto"
+      - "East Palo Alto"
+      - "Menlo Park"
+      - "Stanford"
+      - "Atherton"
+      - "Mountain View"
+      - "Los Altos"
+
+              

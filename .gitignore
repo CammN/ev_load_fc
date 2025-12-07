@@ -1,6 +1,8 @@
 # Custom
 data/
 models/
+config1.yaml
+checks.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
