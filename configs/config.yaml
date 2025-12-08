@@ -11,10 +11,12 @@ paths:
   # Model paths
   exp_models: "models/experiments"
   prod_models: "models/production"
+  # Other
+  images: "images"
 
 data:
   # Original raw data
-  ev_filename: "EVChargingStationUsage.csv"
+  ev_filename: "ChargePoint Data CY20Q4.csv" #"EVChargingStationUsage.csv"
   weather_filename: "WeatherEvents_Aug16_Dec20_Publish.csv"
   traffic_filename: "TrafficEvents_Aug16_Dec20_Publish.csv"
   # Interim
@@ -42,5 +44,3 @@ preprocessing:
       - "Atherton"
       - "Mountain View"
       - "Los Altos"
-
-              
