@@ -67,15 +67,13 @@ The details of how the data was collected, transformed and explored are describe
 Geo-Spatiotemporal Data](https://arxiv.org/pdf/1902.06792).
 
 ### Weather data
-Although the LSTW dataset contained weather data in a similar structure to that of the traffic data, I chose to pull directly from the [Meteostat](https://meteostat.net/en/) public API for greater control and granularity. Utilising the [Hourly](https://dev.meteostat.net/python/api/hourly/) class provides data in an hourly frequency from weather stations across the USA including information on:
-1. Temperature
-2. Precipitation
-3. Wind direction/speed/gusts
-4. Snow depth, 
-5. Dew point
-6. Humidity
-7. Air pressure
-8. Hours of sunlight
+The weather data originates from the [Meteostat](https://meteostat.net/en/) public API and is also a part of the LSTW Dataset. It has a similar structure to the traffic data and provides information on:
+1. Type (e.g. rain, storm, cold) 
+2. Severity (0-4)
+5. Incident start and end time
+6. Location metadeta
+
+I also decided to extract hourly temperature data from Meteostat using the [Hourly](https://dev.meteostat.net/python/api/hourly/) class as extreme heat is common in California and could affect local behaviour.
 
 Through analysis of the EV datasets a time frame of August 2017 to the end of February 2020 was chosen for this experiment as it maintained a stable (if noisy) level of demand. Future work for this project could be to develop a model that tolerates the shocks to demand caused by the COVID-19 pandemic.
 

@@ -36,6 +36,10 @@ preprocessing:
       - "Palo Alto"
       - "Mountain View"
       - "San Carlos"
+    meteostat_staions:
+      - "KPAO0"
+      - "74509"
+      - "KSQL0"
     traffic_cities:
       - "Palo Alto"
       - "East Palo Alto"

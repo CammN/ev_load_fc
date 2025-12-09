@@ -1,5 +1,6 @@
 import pandas as pd
 from datetime import datetime
+from meteostat import Hourly 
 
 def col_standardisation(df:pd.DataFrame)->pd.DataFrame:
     """Standardise column names by applying consistent formatting.
@@ -99,3 +100,12 @@ def filtered_chunking(csv_path:str,
     return chunked_data
 
 
+def meteo_stat_temp(stations, min_ts, max_ts):
+
+    # Import weather data on hourly basis
+    hourly_data = Hourly(stations, min_ts, max_ts)
+    meteo_data = hourly_data.fetch()
+    # Extract temperature data
+    temp_data = meteo_data[['temp']].reset_index().rename(columns={'station':'temp_ws', 'time':'starttime'})
+
+    return temp_data
