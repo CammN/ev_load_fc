@@ -1,6 +1,25 @@
+# Packages
 import pandas as pd
 from datetime import datetime
 from meteostat import Hourly 
+import pandas as pd
+from ev_load_fc.config import CFG, resolve_path
+# Paths
+raw_data_path     =  resolve_path(CFG["paths"]["raw_data"])
+interim_data_path =  resolve_path(CFG["paths"]["interim_data"])
+ev_raw_path       =  raw_data_path / CFG["files"]["ev_filename"]
+weather_raw_path  =  raw_data_path / CFG["files"]["weather_filename"]
+traffic_raw_path  =  raw_data_path / CFG["files"]["traffic_filename"]
+ev_int_path       =  interim_data_path / CFG["files"]["ev_filt_filename"]
+weather_int_path  =  interim_data_path / CFG["files"]["weather_filt_filename"]
+traffic_int_path  =  interim_data_path / CFG["files"]["traffic_filt_filename"]
+# Filters 
+min_timestamp     =  pd.to_datetime(CFG["preprocessing"]['raw_filters']["min_timestamp"])
+max_timestamp     =  pd.to_datetime(CFG["preprocessing"]['raw_filters']["max_timestamp"])
+weather_cities    =  CFG["preprocessing"]['raw_filters']["weather_cities"]
+mts_stations      =  CFG["preprocessing"]['raw_filters']["meteostat_staions"]
+traffic_cities    =  CFG["preprocessing"]['raw_filters']["traffic_cities"]
+
 
 def col_standardisation(df:pd.DataFrame)->pd.DataFrame:
     """Standardise column names by applying consistent formatting.
@@ -109,3 +128,61 @@ def meteo_stat_temp(stations, min_ts, max_ts):
     temp_data = meteo_data[['temp']].reset_index().rename(columns={'station':'temp_ws', 'time':'starttime'})
 
     return temp_data
+
+
+### Meta loading functions ###
+
+def filt_save_ev():
+    """_summary_
+    """
+        
+    # Trim EV data
+    ev_data_trim = filtered_chunking(ev_raw_path, 
+                                    start_date_col='Start Date', 
+                                    end_date_col='End Date',
+                                    date_format='%m/%d/%Y %H:%M',
+                                    chunksize=100000, 
+                                    min_date=min_timestamp, 
+                                    max_date=max_timestamp)
+    # Standardise column names
+    ev_data_trim = col_standardisation(ev_data_trim)
+    # Save
+    ev_data_trim.to_csv(ev_int_path, index=False)
+
+
+def filt_save_weather():        
+    # Trim weather data
+    weather_data_trim = filtered_chunking(weather_raw_path, 
+                                    start_date_col='StartTime(UTC)', 
+                                    end_date_col='EndTime(UTC)',
+                                    date_format='%Y-%m-%d %H:%M:%S',
+                                    chunksize=100000, 
+                                    min_date=min_timestamp, 
+                                    max_date=max_timestamp,
+                                    city_list=weather_cities)
+    # Standardise column names
+    weather_data_trim = col_standardisation(weather_data_trim)
+
+    # Import temperature data from meteostat
+    temp_data = meteo_stat_temp(mts_stations,min_timestamp,max_timestamp)
+    # Merge with LSTW weather dataset
+    weather_data_all = weather_data_trim.merge(temp_data,how='outer',on='starttime')
+
+    # Save
+    weather_data_all.to_csv(weather_int_path, index=False)
+
+
+def filt_save_traffic():     
+    # Trim traffic data
+    traffic_data_trim = filtered_chunking(traffic_raw_path, 
+                                    start_date_col='StartTime(UTC)', 
+                                    end_date_col='EndTime(UTC)',
+                                    date_format='%Y-%m-%d %H:%M:%S', 
+                                    chunksize=100000,
+                                    min_date=min_timestamp, 
+                                    max_date=max_timestamp,
+                                    city_list=traffic_cities)
+    # Standardise column names
+    traffic_data_trim = col_standardisation(traffic_data_trim)
+    # Save
+    traffic_data_trim.to_csv(traffic_int_path, index=False)

@@ -2,6 +2,7 @@
 project:
   name: ev_load_fc
   seed: 42
+  aggregation_period: "1h"
 
 paths:
   # Data paths
@@ -14,7 +15,7 @@ paths:
   # Other
   images: "images"
 
-data:
+files:
   # Original raw data
   ev_filename: "ChargePoint Data CY20Q4.csv" #"EVChargingStationUsage.csv"
   weather_filename: "WeatherEvents_Aug16_Dec20_Publish.csv"
@@ -23,9 +24,10 @@ data:
   ev_filt_filename: "ev_data_filt_date.csv"
   weather_filt_filename: "weather_data_filt_date_city.csv"
   traffic_filt_filename: "traffic_data_filt_date_city.csv"
-
-  aggregation_period: "1h"
-  mad_thresholds: 4
+  # Processed
+  ev_processed_filename: "ev_data_cfs.csv"
+  weather_processed_filename: "weather_data_cfs.csv"
+  traffic_processed_filename: "traffic_data_cfs.csv"
 
 preprocessing:
   # Filters to restrict raw data to model set
@@ -48,3 +50,10 @@ preprocessing:
       - "Atherton"
       - "Mountain View"
       - "Los Altos"
+
+  cleaning:
+    min_charger_kw: 1
+    max_charger_kw: 8
+    mad_thresholds: 4 # Since load can be volatile I chose a threshold larger than the standard value of 3 
+
+    

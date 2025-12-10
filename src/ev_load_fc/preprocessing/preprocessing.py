@@ -1,5 +1,20 @@
 import pandas as pd
 from scipy.stats import skew
+from ev_load_fc.config import CFG, resolve_path
+# Paths
+interim_data_path   =  resolve_path(CFG["paths"]["interim_data"])
+processed_data_path =  resolve_path(CFG["paths"]["processed_data"])
+ev_int_path         =  interim_data_path / CFG["files"]["ev_filt_filename"]
+weather_int_path    =  interim_data_path / CFG["files"]["weather_filt_filename"]
+traffic_int_path    =  interim_data_path / CFG["files"]["traffic_filt_filename"]
+ev_pro_path         =  processed_data_path / CFG["files"]["ev_filename"]
+weather_pro_path    =  processed_data_path / CFG["files"]["weather_filename"]
+traffic_pro_path    =  processed_data_path / CFG["files"]["traffic_filename"]
+# Preprocessing parameters
+min_kw     =   CFG["preprocessing"]['cleaning']["min_charger_kw"]
+max_kw     =   CFG["preprocessing"]['cleaning']["max_charger_kw"] 
+mad_thresh =   CFG["preprocessing"]['cleaning']["mad_thresholds"]
+
 
 
 def mad_outlier_bounds(df, cols:list=[], threshold=3)->dict:
@@ -76,3 +91,43 @@ def cap_outliers_mad(df:pd.DataFrame, mad_dict:dict)->pd.DataFrame:
         df_capped.loc[df_capped[col] < min_val, col] = min_val
 
     return df_capped
+
+
+### Meta preprocessing functions ###
+
+def ev_clean_enrich_split():
+
+    ev_filt = pd.read_csv(ev_int_path, parse_dates=['start_date','end_date','transaction_date'])
+
+    ev_keep_cols = ['start_date','energy','charging_time', 'plug_type']
+    ev_filt = ev_int_path[ev_keep_cols]
+
+    # Drop rows with missing start dates
+    missing_sd_mask = ev_filt['start_date'].isna()
+    ev_filt = ev_filt[missing_sd_mask]
+    print(f"Dropped {missing_sd_mask.astype(int).sum()} rows from EV dataset for having missing values for start_date.")
+
+    # Set start_date as index
+    ev_filt.rename(['start_date'])
+    ev_filt.set_index(ev_filt['start_date'])
+
+    # Remove extreme values based on calculated charger plug power
+    ev_filt['duration_hours'] = pd.to_timedelta(ev_filt['charging_time']).dt.total_seconds() / 3600
+    ev_filt['charger_kw'] = ev_filt['energy'] / ev_filt['duration_hours']
+    ext_val_mask = ev_filt[(min_kw < ev_filt['charger_kw']) & (ev_filt['charger_kw'] < max_kw)]
+    ev_filt[ext_val_mask]
+
+    # Impute missing values for energy using approximate power for charger plug type 
+    ev_filt.loc[(ev_filt['energy'].isna()) & (ev_filt['plug_type']=='J1772'), 'energy'] = 7 * ['duration_hours']
+    ev_filt.loc[(ev_filt['energy'].isna()) & (ev_filt['plug_type']=='NEMA 5-20R'), 'energy'] = 3 * ['duration_hours']
+    ev_filt = ev_filt[ev_filt['energy'].isna()] # drop any remaining missing values
+
+    # Remove anomalous values based on negative energy load
+    neg_eng_mask = ev_filt[ev_filt['charger_kw'] < 0]
+    ev_filt[neg_eng_mask]
+
+    # Finding and capping outliers for energy load using MAD thresholds
+    ev_mad_dict = mad_outlier_bounds(ev_filt, ['energy'], mad_thresh)
+    ev_filt = cap_outliers_mad(ev_filt, ev_mad_dict)
+
+
