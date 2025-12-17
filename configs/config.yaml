@@ -2,7 +2,6 @@
 project:
   name: ev_load_fc
   seed: 42
-  aggregation_period: "1h"
 
 paths:
   # Data paths
@@ -23,16 +22,17 @@ files:
   # Interim
   ev_filt_filename: "ev_data_filt_date.csv"
   weather_filt_filename: "weather_data_filt_date_city.csv"
+  temperature_filename: "temperature.csv"
   traffic_filt_filename: "traffic_data_filt_date_city.csv"
-  # Processed
-  ev_processed_filename: "ev_data_cfs.csv"
-  weather_processed_filename: "weather_data_cfs.csv"
-  traffic_processed_filename: "traffic_data_cfs.csv"
+  # # Processed
+  # ev_processed_filename: "ev_data_cfs.csv"
+  # weather_processed_filename: "weather_data_cfs.csv"
+  # traffic_processed_filename: "traffic_data_cfs.csv"
 
-preprocessing:
+data:
   # Filters to restrict raw data to model set
   raw_filters:
-    min_timestamp: "2017-08-01"         
+    min_timestamp: "2017-08-01"       
     max_timestamp: "2020-03-01"         
     weather_cities:
       - "Palo Alto"
@@ -51,9 +51,19 @@ preprocessing:
       - "Mountain View"
       - "Los Altos"
 
-  cleaning:
-    min_charger_kw: 1
-    max_charger_kw: 8
+  preprocessing:
+    aggregation_period: "1h"
+    plug_power_quantile_bound: 0.001
     mad_thresholds: 4 # Since load can be volatile I chose a threshold larger than the standard value of 3 
+    # split_point: 0.8 
+    split_date: "2019-08-01"
+    holidays:
+      - "Independence Day"
+      - "Thanksgiving Day"
+      - "Christmas Eve"
+      - "Christmas Day"
+      - "Boxing Day"
+      - "New Year's Day"
+    combine_holidays: False
 
     

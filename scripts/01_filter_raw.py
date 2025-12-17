@@ -1,5 +1,5 @@
 # This script allows a user to read in and filter 1-3 of the raw datasets based on date ranges and state/county/city
-# Additional temperature data is borught in via the meteostat public API and merged onto the weather dataset
+# Additional temperature data is brought in via the meteostat public API and merged onto the weather dataset
 # It then standardises all column names and saves as CSV files
 
 import argparse
@@ -8,20 +8,20 @@ from ev_load_fc.preprocessing.loading import filt_save_ev, filt_save_weather, fi
 
 def main(ev, weather, traffic):
     
-   if ev:
-    filt_save_ev()
-    print("----------------------------------------------")
-    print("Successfully saved trimmed EV data")
+    if ev:
+        filt_save_ev()
+        print("----------------------------------------------")
+        print("Successfully saved trimmed EV data")
 
     if weather:
-       filt_save_weather()
-       print("----------------------------------------------")
-       print("Successfully saved trimmed LSTW weather + meteostat temperature data")
+        filt_save_weather()
+        print("----------------------------------------------")
+        print("Successfully saved trimmed LSTW weather + meteostat temperature data")
 
     if traffic:
-       filt_save_traffic()
-       print("----------------------------------------------")
-       print("Successfully saved trimmed traffic data")
+        filt_save_traffic()
+        print("----------------------------------------------")
+        print("Successfully saved trimmed traffic data")
     
 
 def parse_args():

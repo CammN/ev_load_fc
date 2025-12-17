@@ -5,20 +5,21 @@ from meteostat import Hourly
 import pandas as pd
 from ev_load_fc.config import CFG, resolve_path
 # Paths
-raw_data_path     =  resolve_path(CFG["paths"]["raw_data"])
-interim_data_path =  resolve_path(CFG["paths"]["interim_data"])
-ev_raw_path       =  raw_data_path / CFG["files"]["ev_filename"]
-weather_raw_path  =  raw_data_path / CFG["files"]["weather_filename"]
-traffic_raw_path  =  raw_data_path / CFG["files"]["traffic_filename"]
-ev_int_path       =  interim_data_path / CFG["files"]["ev_filt_filename"]
-weather_int_path  =  interim_data_path / CFG["files"]["weather_filt_filename"]
-traffic_int_path  =  interim_data_path / CFG["files"]["traffic_filt_filename"]
+raw_data_path     =  resolve_path(CFG['paths']['raw_data'])
+interim_data_path =  resolve_path(CFG['paths']['interim_data'])
+ev_raw_path       =  raw_data_path / CFG['files']['ev_filename']
+weather_raw_path  =  raw_data_path / CFG['files']['weather_filename']
+traffic_raw_path  =  raw_data_path / CFG['files']['traffic_filename']
+ev_int_path       =  interim_data_path / CFG['files']['ev_filt_filename']
+weather_int_path  =  interim_data_path / CFG['files']['weather_filt_filename']
+temp_path         =  interim_data_path / CFG['files']['temperature_filename']
+traffic_int_path  =  interim_data_path / CFG['files']['traffic_filt_filename']
 # Filters 
-min_timestamp     =  pd.to_datetime(CFG["preprocessing"]['raw_filters']["min_timestamp"])
-max_timestamp     =  pd.to_datetime(CFG["preprocessing"]['raw_filters']["max_timestamp"])
-weather_cities    =  CFG["preprocessing"]['raw_filters']["weather_cities"]
-mts_stations      =  CFG["preprocessing"]['raw_filters']["meteostat_staions"]
-traffic_cities    =  CFG["preprocessing"]['raw_filters']["traffic_cities"]
+min_timestamp     =  pd.to_datetime(CFG['data']['raw_filters']['min_timestamp'])
+max_timestamp     =  pd.to_datetime(CFG['data']['raw_filters']['max_timestamp'])
+weather_cities    =  CFG['data']['raw_filters']['weather_cities']
+mts_stations      =  CFG['data']['raw_filters']['meteostat_staions']
+traffic_cities    =  CFG['data']['raw_filters']['traffic_cities']
 
 
 def col_standardisation(df:pd.DataFrame)->pd.DataFrame:
@@ -133,8 +134,6 @@ def meteo_stat_temp(stations, min_ts, max_ts):
 ### Meta loading functions ###
 
 def filt_save_ev():
-    """_summary_
-    """
         
     # Trim EV data
     ev_data_trim = filtered_chunking(ev_raw_path, 
@@ -166,10 +165,10 @@ def filt_save_weather():
     # Import temperature data from meteostat
     temp_data = meteo_stat_temp(mts_stations,min_timestamp,max_timestamp)
     # Merge with LSTW weather dataset
-    weather_data_all = weather_data_trim.merge(temp_data,how='outer',on='starttime')
 
     # Save
-    weather_data_all.to_csv(weather_int_path, index=False)
+    weather_data_trim.to_csv(weather_int_path, index=False)
+    temp_data.to_csv(temp_path, index=False)
 
 
 def filt_save_traffic():     

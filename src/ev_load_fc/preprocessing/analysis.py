@@ -38,8 +38,10 @@ def plot_time_series(df:pd.DataFrame, period_col:str, agg_col:str, weekday_split
     Args:
         df (pd.DataFrame): Time series data with datetime index and energy values.
         period_col (str): Period column to group by (e.g. 'hourly_datetime', 'date', 'month').
-        weekday_split (bool, optional): Whether to split the plot by weekdays. Defaults to False
-        weekday_list (int, optional): Specific weekdays to plot if weekday_split is True. Defaults to all days [0-6].
+        agg_col (str): Column of df to aggregate
+        weekday_split (bool, optional): Whether to split the plot by weekdays.
+        weekday_list (int, optional): Specific weekdays to plot if weekday_split is True.
+        agg_type (str, optional): 'total' to sum aggregation column, 'mean' to take mean of aggregation column. 
 
     Returns:
         None: Displays the plot.
@@ -54,16 +56,16 @@ def plot_time_series(df:pd.DataFrame, period_col:str, agg_col:str, weekday_split
         for i in range(7):
             if i in weekday_list:
                 weekday_condition = df['weekday'] == i
-                if agg_type == 'total':
+                if agg_type.lower() == 'total':
                     ts = df[weekday_condition].groupby(by=[period_col.lower()],sort=True)[agg_col].sum()
-                elif agg_type == 'mean':
+                elif agg_type.lower() == 'mean':
                     ts = df[weekday_condition].groupby(by=[period_col.lower()],sort=True)[agg_col].mean()
                 if isinstance(ts.index, pd.PeriodIndex):
                     ts.index = ts.index.to_timestamp()
                 plt.plot(ts.index, ts.values, label=weekdays[i])
     else:
         if agg_type == 'total':
-                    ts = df.groupby(by=[period_col.lower()],sort=True)[agg_col].sum()
+            ts = df.groupby(by=[period_col.lower()],sort=True)[agg_col].sum()
         elif agg_type == 'mean':
             ts = df.groupby(by=[period_col.lower()],sort=True)[agg_col].mean()
         if isinstance(ts.index, pd.PeriodIndex):
