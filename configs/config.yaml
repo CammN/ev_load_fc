@@ -2,6 +2,7 @@
 project:
   name: ev_load_fc
   seed: 42
+  logging_level: 20
 
 paths:
   # Data paths
@@ -13,6 +14,7 @@ paths:
   prod_models: "models/production"
   # Other
   images: "images"
+  logs: "logs"
 
 files:
   # Original raw data
@@ -24,10 +26,18 @@ files:
   weather_filt_filename: "weather_data_filt_date_city.csv"
   temperature_filename: "temperature.csv"
   traffic_filt_filename: "traffic_data_filt_date_city.csv"
-  # # Processed
-  # ev_processed_filename: "ev_data_cfs.csv"
-  # weather_processed_filename: "weather_data_cfs.csv"
-  # traffic_processed_filename: "traffic_data_cfs.csv"
+  # Processed
+  ev_train: "ev_train.csv"
+  weather_train: "weather_train.csv"
+  temperature_train: "temperature_train.csv"
+  traffic_train: "traffic_train.csv"
+  all_train: "train.csv"
+  ev_test: "ev_test.csv"
+  weather_test: "weather_test.csv"
+  temperature_test: "temperature_test.csv"
+  traffic_test: "traffic_test.csv"
+  all_test: "test.csv"
+  
 
 data:
   # Filters to restrict raw data to model set
@@ -52,6 +62,34 @@ data:
       - "Los Altos"
 
   preprocessing:
+    ev_keep_cols:
+      - "starttime"
+      - "endtime"
+      - "energy"
+      - "charging_time"
+      - "plug_type"
+      - "duration_hours"
+    weather_keep_cols:
+      - "starttime"
+      - "endtime"
+      - "type"
+      - "severity"
+      - "duration"
+    weather_type_filt:
+      - "Rain"
+      - "Fog"
+      - "Storm"
+    traffic_keep_cols:
+      - "starttime"
+      - "endtime"
+      - "type"
+      - "severity"
+      - "distance"
+      - "duration"
+    traffic_type_filt:
+      - "Congestion"
+      - "Flow-Incident"
+      - "Event"
     aggregation_period: "1h"
     plug_power_quantile_bound: 0.001
     mad_thresholds: 4 # Since load can be volatile I chose a threshold larger than the standard value of 3 

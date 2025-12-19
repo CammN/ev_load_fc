@@ -3,26 +3,40 @@
 # It then standardises all column names and saves as CSV files
 
 import argparse
-from ev_load_fc.preprocessing.loading import filt_save_ev, filt_save_weather, filt_save_traffic
+import logging
+import pandas as pd
+from ev_load_fc.pipelines.loading_pipeline import LoadingPipeline, LoadingPipelineConfig
+from ev_load_fc.config import CFG, resolve_path
+from ev_load_fc.utils.logging import setup_logging
+logging_level = CFG["project"]["logging_level"]
 
 
-def main(ev, weather, traffic):
-    
-    if ev:
-        filt_save_ev()
-        print("----------------------------------------------")
-        print("Successfully saved trimmed EV data")
+def build_pipeline_params(ev, weather, traffic):
 
-    if weather:
-        filt_save_weather()
-        print("----------------------------------------------")
-        print("Successfully saved trimmed LSTW weather + meteostat temperature data")
+    raw = resolve_path(CFG["paths"]["raw_data"])
+    interim = resolve_path(CFG["paths"]["interim_data"])
 
-    if traffic:
-        filt_save_traffic()
-        print("----------------------------------------------")
-        print("Successfully saved trimmed traffic data")
-    
+    return {
+        # Paths
+        "ev_raw_path": raw / CFG["files"]["ev_filename"],
+        "weather_raw_path": raw / CFG["files"]["weather_filename"],
+        "traffic_raw_path": raw / CFG["files"]["traffic_filename"],
+        "ev_int_path": interim / CFG["files"]["ev_filt_filename"],
+        "weather_int_path": interim / CFG["files"]["weather_filt_filename"],
+        "traffic_int_path": interim / CFG["files"]["traffic_filt_filename"],
+        "temp_path": interim / CFG["files"]["temperature_filename"],
+        # Filters
+        "min_timestamp": pd.to_datetime(CFG["data"]["raw_filters"]["min_timestamp"]),
+        "max_timestamp": pd.to_datetime(CFG["data"]["raw_filters"]["max_timestamp"]),
+        "weather_cities": CFG["data"]["raw_filters"]["weather_cities"],
+        "traffic_cities": CFG["data"]["raw_filters"]["traffic_cities"],
+        "mts_stations": CFG["data"]["raw_filters"]["meteostat_staions"],
+        # Pipeline parameters
+        "run_ev": ev,
+        "run_weather": weather,
+        "run_traffic": traffic,
+    }
+
 
 def parse_args():
     """Parse command line arguments for processing raw datasets."""
@@ -34,10 +48,28 @@ def parse_args():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    # args if user wants to process a specific dataset
+def main():
+    logger = setup_logging("preprocessing_pipeline.log", level=logging_level)
     args = parse_args()
+
+    # If no flags are provided in CLI, run everything
     if not (args.ev or args.weather or args.traffic):
         args.ev = args.weather = args.traffic = True
 
-    main(ev=args.ev, weather=args.weather, traffic=args.traffic)
+    # Build pipeline parameters (including run parameters) and convert to dataclass
+    pipeline_params = build_pipeline_params(
+        ev=args.ev,
+        weather=args.weather,
+        traffic=args.traffic,
+    )
+    cfg = LoadingPipelineConfig(**pipeline_params)
+
+    pipeline = LoadingPipeline(config=cfg)
+    logger.info("Starting LoadingPipeline...")
+    pipeline.run()
+    logger.info("Finished LoadingPipeline.")
+    logger.info("...")
+
+
+if __name__ == "__main__":
+    main()

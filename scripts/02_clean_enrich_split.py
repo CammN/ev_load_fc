@@ -1,64 +1,83 @@
 import argparse
+import logging
+import pandas as pd
+from ev_load_fc.pipelines.preprocessing_pipeline import PreprocessingPipeline, PreprocessingPipelineConfig
 from ev_load_fc.config import CFG, resolve_path
-from ev_load_fc.preprocessing.preprocessing import ev_clean_split, weather_clean_split, temperature_clean_split, traffic_clean_split, combine_to_model_set
-import time
+from ev_load_fc.utils.logging import setup_logging
+logging_level = CFG["project"]["logging_level"]
 
+def build_pipeline_params(ev, weather, temperature, traffic, combine):
 
-def main(ev, weather, temperature, traffic, combine):
+    interim = resolve_path(CFG["paths"]["interim_data"])
 
-    if ev:
-        print("Beginning EV data preprocessing")
-        ev_start = time.time()
-        ev_clean_split()
-        ev_end = time.time()
-        print(f"Successfully completed ev data preprocessing in {(ev_end-ev_start):.2f}s")
+    return {
 
-    if weather:
-        print("Beginning weather data preprocessing")
-        weather_start = time.time()
-        weather_clean_split()
-        weather_end = time.time()
-        print(f"Successfully completed weather data preprocessing in {(weather_end-weather_start):.2f}s")
+        # Paths
+        "processed_data_path": resolve_path(CFG["paths"]["processed_data"]),
+        "ev_int_path": interim / CFG["files"]["ev_filt_filename"],
+        "weather_int_path": interim / CFG["files"]["weather_filt_filename"],
+        "temp_path": interim / CFG["files"]["temperature_filename"],
+        "traffic_int_path": interim / CFG["files"]["traffic_filt_filename"],
 
-    if temperature:
-        print("Beginning temperature data preprocessing")
-        temp_start = time.time()
-        temperature_clean_split()
-        temp_end = time.time()
-        print(f"Successfully completed temperature data preprocessing in {(temp_end-temp_start):.2f}s")
+        # Filters
+        "min_timestamp": pd.to_datetime(CFG["data"]["raw_filters"]["min_timestamp"]),
+        "max_timestamp": pd.to_datetime(CFG["data"]["raw_filters"]["max_timestamp"]),
+        "ev_cols": CFG["data"]["preprocessing"]["ev_keep_cols"],
+        "weather_cols": CFG["data"]["preprocessing"]["weather_keep_cols"],
+        "temp_cols": [],
+        "traffic_cols": CFG["data"]["preprocessing"]["traffic_keep_cols"],
+        "weather_type_filt": CFG["data"]["preprocessing"]["weather_type_filt"],
+        "traffic_type_filt": CFG["data"]["preprocessing"]["traffic_type_filt"],
 
-    if traffic:
-        print("Beginning traffic data preprocessing")
-        traffic_start = time.time()
-        traffic_clean_split()
-        traffic_end = time.time()
-        print(f"Successfully completed traffic data preprocessing in {(traffic_end-traffic_start):.2f}s")
-
-    if combine:
-        print("Beginning combination process for all data")
-        combine_start = time.time()
-        combine_to_model_set()
-        combine_end = time.time()
-        print(f"Successfully completed combination in {(combine_end-combine_start):.2f}s")
-
+        # Preprocessing parameters
+        "kw_quant": CFG["data"]["preprocessing"]["plug_power_quantile_bound"],
+        "mad_thresh": CFG["data"]["preprocessing"]["mad_thresholds"],
+        "split_date": pd.to_datetime(CFG["data"]["preprocessing"]["split_date"]),
+        "agg_period": CFG["data"]["preprocessing"]["aggregation_period"],
+        
+        # Optional runtime parameters
+        "run_ev": ev,
+        "run_weather": weather,
+        "run_temperature": temperature,
+        "run_traffic": traffic,
+        "run_combine": combine,
+    }
 
 def parse_args():
-    """Parse command line arguments for preprocessing interim datasets."""
+    """Parse command line arguments for processing interim datasets."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ev", action="store_true", help="Process EV data.")
+    parser.add_argument( "--ev", action="store_true", help="Process EV data.")
     parser.add_argument("--weather", action="store_true", help="Process weather data.")
     parser.add_argument("--temperature", action="store_true", help="Process temperature data.")
-    parser.add_argument("--traffic", action="store_true", help="Process traffic data.")
-    parser.add_argument("--combine", action="store_true", help="Combine all data into final train and test sets.")
+    parser.add_argument( "--traffic", action="store_true", help="Process traffic data.")
+    parser.add_argument( "--combine", action="store_true", help="Combine all data.")
 
     return parser.parse_args()
 
-
-if __name__ == "__main__":
-    # args if user wants to process a specific dataset
+def main():
+    logger = setup_logging("preprocessing_pipeline.log", level=logging_level)
     args = parse_args()
+
+    # If no flags are provided in CLI, run everything
     if not (args.ev or args.weather or args.temperature or args.traffic or args.combine):
         args.ev = args.weather = args.temperature = args.traffic = args.combine = True
 
-    # main(ev=False, weather=False, temperature=False, traffic=False, combine=True)
-    main(ev=args.ev, weather=args.weather, temperature=args.temperature, traffic=args.traffic, combine=args.combine)
+    # Build pipeline parameters (including run parameters) and convert to dataclass
+    pipeline_params = build_pipeline_params(
+        ev=args.ev,
+        weather=args.weather,
+        temperature=args.temperature,
+        traffic=args.traffic,
+        combine=args.combine,
+    )
+    cfg = PreprocessingPipelineConfig(**pipeline_params)
+
+    pipeline = PreprocessingPipeline(config=cfg)
+    logger.info("Starting PreprocessingPipeline...")
+    pipeline.run()
+    logger.info("Finished PreprocessingPipeline.")
+    logger.info("-----------------------------------------------------------------")
+
+
+if __name__ == "__main__":
+    main()
