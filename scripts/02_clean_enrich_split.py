@@ -9,15 +9,21 @@ logging_level = CFG["project"]["logging_level"]
 def build_pipeline_params(ev, weather, temperature, traffic, combine):
 
     interim = resolve_path(CFG["paths"]["interim_data"])
+    processed = resolve_path(CFG["paths"]["processed_data"])
 
     return {
 
         # Paths
-        "processed_data_path": resolve_path(CFG["paths"]["processed_data"]),
+        "processed_data_path": processed,
         "ev_int_path": interim / CFG["files"]["ev_filt_filename"],
         "weather_int_path": interim / CFG["files"]["weather_filt_filename"],
         "temp_path": interim / CFG["files"]["temperature_filename"],
         "traffic_int_path": interim / CFG["files"]["traffic_filt_filename"],
+        "ev_proc_path": processed / CFG["files"]["ev_proc_filename"],
+        "weather_proc_path": processed / CFG["files"]["weather_proc_filename"],
+        "temp_proc_path": processed / CFG["files"]["temperature_proc_filename"],
+        "traffic_proc_path": processed / CFG["files"]["traffic_proc_filename"],
+        "combined_path": processed / CFG["files"]["combined_filename"],
 
         # Filters
         "min_timestamp": pd.to_datetime(CFG["data"]["raw_filters"]["min_timestamp"]),
@@ -55,6 +61,7 @@ def parse_args():
     return parser.parse_args()
 
 def main():
+    # Initialise logging and CLI args
     logger = setup_logging("preprocessing_pipeline.log", level=logging_level)
     args = parse_args()
 

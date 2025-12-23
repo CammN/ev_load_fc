@@ -2,13 +2,14 @@
 project:
   name: ev_load_fc
   seed: 42
-  logging_level: 20
+  logging_level: 10 # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL
 
 paths:
   # Data paths
-  raw_data: "data/01_raw"
-  interim_data: "data/02_interim"
-  processed_data: "data/03_processed"
+  raw_data: "datasets/01_raw"
+  interim_data: "datasets/02_interim"
+  processed_data: "datasets/03_processed"
+  feature_store: "datasets/04_features"
   # Model paths
   exp_models: "models/experiments"
   prod_models: "models/production"
@@ -27,7 +28,12 @@ files:
   temperature_filename: "temperature.csv"
   traffic_filt_filename: "traffic_data_filt_date_city.csv"
   # Processed
-  ev_train: "ev_train.csv"
+  ev_proc_filename: "ev_processed.csv"
+  weather_proc_filename: "weather_processed.csv"
+  temperature_proc_filename: "temperature_processed.csv"
+  traffic_proc_filename: "traffic_processed.csv"
+  combined_filename: "combined_processed.csv"
+
   weather_train: "weather_train.csv"
   temperature_train: "temperature_train.csv"
   traffic_train: "traffic_train.csv"
@@ -69,6 +75,7 @@ data:
       - "charging_time"
       - "plug_type"
       - "duration_hours"
+      - "charger_kw"
     weather_keep_cols:
       - "starttime"
       - "endtime"
@@ -95,6 +102,13 @@ data:
     mad_thresholds: 4 # Since load can be volatile I chose a threshold larger than the standard value of 3 
     # split_point: 0.8 
     split_date: "2019-08-01"
+
+features:
+
+  feature_engineering:
+
+    target: 'energy'
+
     holidays:
       - "Independence Day"
       - "Thanksgiving Day"
@@ -103,5 +117,24 @@ data:
       - "Boxing Day"
       - "New Year's Day"
     combine_holidays: False
+
+    energy_col_substrs: ['energy']
+    weather_col_substrs: ['fog_dur','rain_dur','storm_dur']
+    temperature_col_substrs: ['temp']
+    traffic_col_substrs: ['cong_dur','cong_dis','flow_dur','flow_dis','event_dur','event_dis']
+    
+    time_feature_dict:
+      lags: 
+        energy: [1,3,6,24,168]
+      rolling_sums: 
+        energy: [3,6,12,24,168]
+        weather: [1,3,6]
+        traffic: [1,3,6]
+      rolling_means: 
+        energy: [3,6,12,24,168]
+        temperature: [1,3,6,12]
+
+
+          
 
     
