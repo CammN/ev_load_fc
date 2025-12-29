@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from ev_load_fc.data.preprocessing import scale_features
 from ev_load_fc.features.feature_creation import (
     aggregate_features, 
-    date_features, 
+    time_features, 
     get_holidays,
     lag_features, 
     rolling_window_features,
@@ -88,7 +88,7 @@ class FeaturePipeline:
 
         ## 2 Date features ##
 
-        combined = date_features(combined)
+        combined = time_features(combined)
 
         holidays = get_holidays(self.cfg.holiday_list, self.cfg.min_timestamp, self.cfg.max_timestamp)
         combined = combined.merge(holidays, how='left', left_index=True, right_index=True)

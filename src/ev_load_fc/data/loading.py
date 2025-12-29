@@ -8,13 +8,18 @@ logger = logging.getLogger(__name__)
 
 
 def col_standardisation(df:pd.DataFrame)->pd.DataFrame:
-    """Standardise column names by applying consistent formatting.
+    """
+    Standardise column names by applying consistent formatting.
+    Removes suffixes contained in parentheses.
+    Removes blanks.
+    Enforces lower case for all characters.
+    Replaces non-standard characters with an underscore.
 
     Args:
-        df (pd.DataFrame): The DataFrame whose columns are to be standardised.
+        df (pd.DataFrame): DataFrame with raw column names.
 
     Returns:
-        pd.DataFrame: The DataFrame with standardised column names.
+        pd.DataFrame: DataFrame with standardised column names.
     """
     df_renamed = df.copy()
 
@@ -47,23 +52,24 @@ def filtered_chunking(csv_path:str,
                       state_list:list=[], 
                       county_list:list=[], 
                       city_list:list=[]) -> pd.DataFrame:
-    """ Filter large CSV file in chunks by date range and county list.
+    """ 
+    Read in large CSV file using chunking, filtering chunks by date range and location.
 
     Args:
         csv_path (str): Path to the CSV file.
         start_date_col (str): Name of the start date column.
         end_date_col (str): Name of the end date column.
-        date_format (str): strftime
-        chunksize (int, optional): Number of rows per chunk. 
-        min_date (datetime, optional): Minimum date for filtering. 
-        max_date (datetime, optional): Maximum date for filtering.
+        date_format (str): strftime of date columns to filter by.
+        chunksize (int, optional): Number of rows per chunk. Default: 10000
+        min_date (datetime, optional): Minimum date for filtering. Default: 1st January 1900
+        max_date (datetime, optional): Maximum date for filtering. Default: 1st January 2100
         state_list (list, optional): List of states to filter by.
         county_list (list, optional): List of counties to filter by.
         city_list (list, optional): List of cities to filter by.
 
 
     Returns:
-        pd.DataFrame: Filtered DataFrame containing only the relevant chunks.
+        pd.DataFrame: Filtered DataFrame.
     """
 
     # Initialise chunking
@@ -108,7 +114,18 @@ def filtered_chunking(csv_path:str,
     return chunked_data
 
 
-def meteo_stat_temp(stations, min_ts, max_ts):
+def meteo_stat_temp(stations:list, min_ts:pd.Timestamp, max_ts:pd.Timestamp) -> pd.DataFrame:
+    """
+    Fetches weather station temperature data using the MeteoStat API.
+
+    Args:
+        stations (list): List of weather station names to fetch data from.
+        min_ts (pd.Timestamp): Minimum timestamp of data to fetch.
+        max_ts (pd.Timestamp): Maximum timestamp of data to fetch.
+
+    Returns:
+        pd.DataFrame: Temperature DataFrame
+    """
 
     # Import weather data on hourly basis
     hourly_data = Hourly(stations, min_ts, max_ts)

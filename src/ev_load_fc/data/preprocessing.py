@@ -20,7 +20,8 @@ def clean_enrich_split(
         type_filt:list = [],
         split_date:datetime = [], 
 ):
-    """Clean, enrich, and split a DataFrame to retrieve train set.
+    """
+    Clean, enrich, and split a DataFrame to retrieve train set.
 
     Args:
         df (pd.DataFrame): Input DataFrame to be processed
@@ -32,7 +33,7 @@ def clean_enrich_split(
         split_date (datetime, optional): Date to split the data.
 
     Returns:
-        _type_: _description_
+        tuple(pd.DataFrame, pd.DataFrame): First element is the processed data across the entire time period, second element is the processed data across the train set's time period
     """
 
     logger.debug(f"Beginning cleaning of {df_name} with {len(df)} rows")
@@ -165,7 +166,7 @@ def cap_outliers_mad(df:pd.DataFrame, mad_dict:dict)->pd.DataFrame:
     return df_capped
 
 
-def avg_temp_tracker(series):
+def avg_temp_tracker(series) -> pd.DataFrame:
     """
     Adds a column for average temperature across an expanding window up to the point in time of each row, to be used for imputation.
     Averages are calculated per hour per day of the year.
@@ -209,22 +210,38 @@ def avg_temp_tracker(series):
     return df_at
 
     
-def mstl_resid_outliers(series:pd.Series, k:float=3.5, df_name:str='', params=None) -> pd.DataFrame:
-    
+def mstl_resid_outliers(series:pd.Series, k:float=3.5, df_name:str='', params:dict=None) -> pd.DataFrame:
+    """
+    Detects outliers in a time series by applying Season-Trend decomposition with LOESS for multiple seasonalities.
+    Outliers are defined to exist upper and lower bounds for the residuals of the decomposition.
+    Bounds on the residuals are calculated using an estimate of their standard deviation based off their Mean Absolute Deviation. 
+
+    Args:
+        series (pd.Series): Time series.
+        k (float, optional): Threshold multiplier for SD estimation. Default: 3.5
+        df_name (str, optional): Name of time series for logging purposes. Default: ''
+        params (dict, optional): Contains pre-computed values for the median and estimated standard deviation. Default: None
+
+    Returns:
+        pd.DataFrame: _description_
+    """
+
+    # Perform MSTL and extract reiduals
     mstl_start = time.time()
     mstl_model = MSTL(series, periods=[24,24*7], stl_kwargs={'robust':True}).fit()
     resid = mstl_model.resid
 
+    # Assign/compute median and sigma
     if params:
         median = params['median']
         sigma  = params['sigma']
     else:
         median = np.median(resid)
         mad = np.median(np.abs(resid - median))
-        sigma = 1.4826 * mad # with this constant we get an estimation for the standard deviation
+        sigma = 1.4826 * mad # estimation for the standard deviation
 
+    # Define outlier range and flag
     outlier_mask = np.abs(resid - median) > k * sigma
-
     df = pd.DataFrame(series)
     df['outlier'] = 0
     df.loc[outlier_mask, 'outlier'] = 1
@@ -241,16 +258,26 @@ def mstl_resid_outliers(series:pd.Series, k:float=3.5, df_name:str='', params=No
     return df, sigma, median
 
 
-def split_event_by_hour(row):
-    
+def split_event_by_hour(row:pd.Series) -> pd.DataFrame:
+    """
+    Row-wise callback function to explode event rows across hourly intervals.
+
+    Args:
+        row (pd.Series): Contains event information.
+
+    Returns:
+        pd.DataFrame: Exploded event row.
+    """
+
     expl_rows = []
 
-    duration_left = row['duration']
-    current_time  = row['starttime']
+    duration_left = row['duration'] # Total length of event
+    current_time  = row['starttime'] # Start time of event
     other_cols = {} # Treat all other column values as static
     for col in set(row.index) - set(['duration','starttime']):
         other_cols[col] = row[col]
 
+    # Create new rows until we have covered the entire duration period
     while duration_left > 0:
         # End of the current hour
         hour_end = (current_time.floor("h") + pd.Timedelta(hours=1))
@@ -276,8 +303,19 @@ def split_event_by_hour(row):
     return pd.DataFrame(expl_rows)
 
 
-def validate_time_series(df, periods, name):
-    
+def validate_time_series(df:pd.DataFrame, periods:int, name:str):
+    """_summary_
+
+    Args:
+        df (pd.DataFrame): _description_
+        periods (int): _description_
+        name (str): _description_
+
+    Raises:
+        ValueError: If df has the incorrect number of total periods
+        ValueError: If df has the incorrect number of unqiue periods
+        TypeError: If df does not have an index of type DatetimeIndex
+    """
     if len(df) != periods:
         raise ValueError( 
         f"{name} dataset has incorrect number of total periods, expected {periods} but got {len(df)}"

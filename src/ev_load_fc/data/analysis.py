@@ -81,7 +81,18 @@ def plot_time_series(df:pd.DataFrame, period_col:str, agg_col:str, weekday_split
     plt.show()
 
 
-def check_adf_stationarity(series, regression_type='c'):
+def check_adf_stationarity(series:pd.Series, regression_type:str='c'):
+    """
+    Returns set of Augmented- Dick-Fuller statistics to assess the stationarity of a time series.
+    Both constant and constant+trend stationarity can be assessed
+
+    Args:
+        series (pd.Series): Time series to assess stationarity
+        regression_type (str, optional): Constant/trend order to include in regression. Default: 'c'.
+                                            - 'c' = constant only
+                                            - 'ct' = constant and trend
+    """
+
     # Reference: https://machinelearningmastery.com/time-series-data-stationary-python/
 
     result = adfuller(series.values, regression=regression_type)
