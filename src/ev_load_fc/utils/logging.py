@@ -19,6 +19,7 @@ def setup_logging(log_name: str, level: int = logging.INFO) -> logging.Logger:
     Returns:
         logging.Logger: Configured logger
     """
+
     log_dir = resolve_path(CFG["paths"]["logs"])
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -41,4 +42,5 @@ def setup_logging(log_name: str, level: int = logging.INFO) -> logging.Logger:
         ]
     )
     logger = logging.getLogger(__name__)
+    
     return logger

@@ -2,15 +2,16 @@ import pandas as pd
 import numpy as np
 import pathlib
 from dataclasses import dataclass 
-from ev_load_fc.config import CFG, resolve_path
-from ev_load_fc.data.preprocessing import get_holidays
-from ev_load_fc.features.features import (
+from ev_load_fc.data.preprocessing import scale_features
+from ev_load_fc.features.feature_creation import (
     aggregate_features, 
     date_features, 
+    get_holidays,
     lag_features, 
     rolling_window_features,
     flatten_nested_dict,
 )
+from ev_load_fc.features.feature_selection import k_by_scores
 import logging
 logger = logging.getLogger(__name__)
 
@@ -20,11 +21,12 @@ class FeaturePipelineConfig:
     # Paths
     combined_path: pathlib.Path
     feature_store: pathlib.Path
-    # Filters
+    # Miscellaneous
     min_timestamp: pd.Timestamp
     max_timestamp: pd.Timestamp
     split_date: pd.Timestamp
-    # Feature parameters
+    seed: int
+    # Feature creation parameters
     target: str
     holiday_list: list
     time_feature_dict: dict
@@ -32,8 +34,17 @@ class FeaturePipelineConfig:
     weather_col_substrs: list
     temperature_col_substrs: list
     traffic_col_substrs: list
+    # Feature selection parameters
+    scale_method: str
+    k_1: int
+    fe_method_1: str
+    k_2: int
+    fe_method_2: str
+    corr_thresh: float
+    holidays: set
     # Optional runtime parameters
     run_feat_eng: bool
+    run_feat_select: bool
 
 
 class FeaturePipeline:
@@ -164,8 +175,89 @@ class FeaturePipeline:
         self.y.to_csv(self.cfg.feature_store / "y.csv", index_label="timestamp")
 
 
+    def _feature_selection(self):
+        """ Perform feature selection on training and test sets."""    
+
+        # Read in input and target features 
+        X = pd.read_csv(
+            self.cfg.feature_store / "X.csv", 
+            parse_dates=['timestamp'], 
+            index_col=['timestamp'], 
+            low_memory=False
+        )
+        y = pd.read_csv(
+            self.cfg.feature_store / "y.csv", 
+            parse_dates=['timestamp'], 
+            index_col=['timestamp'], 
+            low_memory=False
+        )
+
+        # Scale features (optional)
+        if len(self.cfg.scale_method) > 0:
+            X = scale_features(X, self.cfg.scale_method)
+
+        # Split into train and test
+        self.X_train = X[X.index <  self.cfg.split_date].copy()
+        self.y_train = y[y.index <  self.cfg.split_date].copy()
+        self.X_test  = X[X.index >= self.cfg.split_date].copy()
+        self.y_test  = y[y.index >= self.cfg.split_date].copy()
+
+        # Select K best features using given method (first round)
+        X_train_cut = k_by_scores(
+            X=self.X_train, 
+            y=self.y_train, 
+            method=self.cfg.fe_method_1, 
+            k=self.cfg.k_1,
+            seed=self.cfg.seed
+        )
+
+        # Select K best features using given method (second round)
+        X_train_cut = k_by_scores(
+            X=X_train_cut, 
+            y=self.y_train, 
+            method=self.cfg.fe_method_2, 
+            k=self.cfg.k_2,
+            seed=self.cfg.seed
+        )
+
+        # Drop highly correlated features (optional)
+        if self.cfg.corr_thresh < 1:
+            pass
+
+        ## Add back in certain features ##
+        # If a one of a pair of time-based features is selected, ensure both are selected
+        add_back = set()
+        if 'hour_' in X_train_cut.columns:
+            add_back.update({'hour_sin','hour_cos'})
+        if 'weekday_' in X_train_cut.columns:
+            add_back.update({'weekday__sin','weekday__cos'})
+        if 'month_' in X_train_cut.columns:
+            add_back.update({'month__sin','month__cos'})
+        # Ensure all holiday features are included
+        add_back.update(self.cfg.holidays)
+
+        # Create final feature set
+        final_features = set(X_train_cut.columns)
+        final_features.update(add_back)
+        self.X_train = self.X_train.loc[:, self.X_train.columns.intersection(final_features)]
+        logger.debug(f"Added back {len(add_back)} features into feature set, ending with {len(final_features)} in total")
+
+        # Match features of test set to that of train set
+        self.X_test = self.X_test[self.X_train.columns].copy()
+        # Save model data
+        self.X_train.to_csv(self.cfg.feature_store / "X_train.csv", index=True, index_label='timestamp')
+        self.y_train.to_csv(self.cfg.feature_store / "y_train.csv", index=True, index_label='timestamp')
+        self.X_test.to_csv(self.cfg.feature_store / "X_test.csv", index=True, index_label='timestamp') 
+        self.y_test.to_csv(self.cfg.feature_store / "y_test.csv", index=True, index_label='timestamp') 
+        logger.debug(f"Saved reduced train and tests sets to the {self.cfg.feature_store} dir")
+
+
     def run(self):
         if self.cfg.run_feat_eng:
             logger.info("Beginning _feature_engineering")
             self._feature_engineering()
             logger.info("Finished _feature_engineering")
+        if self.cfg.run_feat_select:
+            logger.info("Beginning _feature_selection")
+            self._feature_selection()
+            logger.info("Finished _feature_selection")

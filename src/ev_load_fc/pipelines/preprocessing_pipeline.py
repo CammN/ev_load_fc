@@ -41,7 +41,7 @@ class PreprocessingPipelineConfig:
     kw_quant: float
     mad_thresh: float
     split_date: pd.Timestamp
-    agg_period: str
+    sampling_interval: str
     # Optional runtime parameters
     run_ev: bool
     run_weather: bool
@@ -58,18 +58,18 @@ class PreprocessingPipeline:
         self.cfg = config
         self.train_date_range = pd.date_range(
              start=self.cfg.min_timestamp,
-             end=self.cfg.split_date-pd.to_timedelta(self.cfg.agg_period),
-             freq=self.cfg.agg_period
+             end=self.cfg.split_date-pd.to_timedelta(self.cfg.sampling_interval),
+             freq=self.cfg.sampling_interval
         )  
         self.test_date_range  = pd.date_range(
             start=self.cfg.split_date,
-            end=self.cfg.max_timestamp-pd.to_timedelta(self.cfg.agg_period),
-            freq=self.cfg.agg_period
+            end=self.cfg.max_timestamp-pd.to_timedelta(self.cfg.sampling_interval),
+            freq=self.cfg.sampling_interval
         )
         self.full_date_range  = pd.date_range(
             start=self.cfg.min_timestamp,
-            end=self.cfg.max_timestamp-pd.to_timedelta(self.cfg.agg_period),
-            freq=self.cfg.agg_period
+            end=self.cfg.max_timestamp-pd.to_timedelta(self.cfg.sampling_interval),
+            freq=self.cfg.sampling_interval
         ) 
 
 
@@ -137,7 +137,7 @@ class PreprocessingPipeline:
         # Aggregate EV data with resampling to given period
         ev_agg = (
             ev
-                .resample(self.cfg.agg_period)["energy"]
+                .resample(self.cfg.sampling_interval)["energy"]
                 .sum()
                 .reindex(self.full_date_range)
                 .fillna(0)
@@ -244,7 +244,7 @@ class PreprocessingPipeline:
         # Aggregate temperature data
         temp_agg = (
                 temp
-                    .resample(self.cfg.agg_period)["temp"]
+                    .resample(self.cfg.sampling_interval)["temp"]
                     .mean()
                     .reindex(self.full_date_range)
                     .sort_index()

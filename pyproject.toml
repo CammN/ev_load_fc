@@ -10,6 +10,7 @@ dependencies = [
     "lightgbm>=4.6.0",
     "matplotlib>=3.10.7",
     "meteostat>=1.7.6",
+    "mlflow>=3.8.0",
     "nbformat>=5.10.4",
     "numpy>=2.3.3",
     "optuna>=4.6.0",
