@@ -6,7 +6,7 @@ from ev_load_fc.data.preprocessing import scale_features
 from ev_load_fc.features.feature_creation import (
     aggregate_features, 
     time_features, 
-    get_holidays,
+    ohe_holidays,
     lag_features, 
     rolling_window_features,
     flatten_nested_dict,
@@ -90,7 +90,7 @@ class FeaturePipeline:
 
         combined = time_features(combined)
 
-        holidays = get_holidays(self.cfg.holiday_list, self.cfg.min_timestamp, self.cfg.max_timestamp)
+        holidays = ohe_holidays(self.cfg.holiday_list, self.cfg.min_timestamp, self.cfg.max_timestamp)
         combined = combined.merge(holidays, how='left', left_index=True, right_index=True)
 
         col_count_3 = combined.shape[1]
@@ -197,15 +197,15 @@ class FeaturePipeline:
             X = scale_features(X, self.cfg.scale_method)
 
         # Split into train and test
-        self.X_train = X[X.index <  self.cfg.split_date].copy()
-        self.y_train = y[y.index <  self.cfg.split_date].copy()
-        self.X_test  = X[X.index >= self.cfg.split_date].copy()
-        self.y_test  = y[y.index >= self.cfg.split_date].copy()
+        X_train = X[X.index <  self.cfg.split_date].copy()
+        y_train = y[y.index <  self.cfg.split_date].copy()
+        X_test  = X[X.index >= self.cfg.split_date].copy()
+        y_test  = y[y.index >= self.cfg.split_date].copy()
 
         # Select K best features using given method (first round)
         X_train_cut = k_by_scores(
-            X=self.X_train, 
-            y=self.y_train, 
+            X=X_train, 
+            y=y_train, 
             method=self.cfg.fe_method_1, 
             k=self.cfg.k_1,
             seed=self.cfg.seed
@@ -214,7 +214,7 @@ class FeaturePipeline:
         # Select K best features using given method (second round)
         X_train_cut = k_by_scores(
             X=X_train_cut, 
-            y=self.y_train, 
+            y=y_train, 
             method=self.cfg.fe_method_2, 
             k=self.cfg.k_2,
             seed=self.cfg.seed
@@ -227,11 +227,11 @@ class FeaturePipeline:
         ## Add back in certain features ##
         # If a one of a pair of time-based features is selected, ensure both are selected
         add_back = set()
-        if 'hour_' in X_train_cut.columns:
+        if any('hour_' in col for col in X_train_cut.columns):
             add_back.update({'hour_sin','hour_cos'})
-        if 'weekday_' in X_train_cut.columns:
+        if any('weekday_' in col for col in X_train_cut.columns):
             add_back.update({'weekday__sin','weekday__cos'})
-        if 'month_' in X_train_cut.columns:
+        if any('month_' in col for col in X_train_cut.columns):
             add_back.update({'month__sin','month__cos'})
         # Ensure all holiday features are included
         add_back.update(self.cfg.holidays)
@@ -239,17 +239,20 @@ class FeaturePipeline:
         # Create final feature set
         final_features = set(X_train_cut.columns)
         final_features.update(add_back)
-        self.X_train = self.X_train.loc[:, self.X_train.columns.intersection(final_features)]
+        X_train = X_train.loc[:, X_train.columns.intersection(final_features)]
         logger.debug(f"Added back {len(add_back)} features into feature set, ending with {len(final_features)} in total")
 
         # Match features of test set to that of train set
-        self.X_test = self.X_test[self.X_train.columns].copy()
+        X_test = X_test[X_train.columns].copy()
         # Save model data
-        self.X_train.to_csv(self.cfg.feature_store / "X_train.csv", index=True, index_label='timestamp')
-        self.y_train.to_csv(self.cfg.feature_store / "y_train.csv", index=True, index_label='timestamp')
-        self.X_test.to_csv(self.cfg.feature_store / "X_test.csv", index=True, index_label='timestamp') 
-        self.y_test.to_csv(self.cfg.feature_store / "y_test.csv", index=True, index_label='timestamp') 
-        logger.debug(f"Saved reduced train and tests sets to the {self.cfg.feature_store} dir")
+        train = pd.concat([X_train, y_train], axis=1)
+        test  = pd.concat([X_test, y_test], axis=1)
+
+        version = f"{self.cfg.fe_method_1}_{self.cfg.k_1}_{self.cfg.fe_method_2}_{self.cfg.k_2}"
+
+        train.to_csv(self.cfg.feature_store / f"train_{version}.csv", index=True, index_label='timestamp')
+        test.to_csv(self.cfg.feature_store / f"test_{version}.csv", index=True, index_label='timestamp')
+        logger.debug(f"Saved reduced train and tests sets to the {self.cfg.feature_store} directory")
 
 
     def run(self):
