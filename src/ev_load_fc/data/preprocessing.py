@@ -1,9 +1,10 @@
 import pandas as pd
-from pandas.tseries.holiday import USFederalHolidayCalendar as calender
 import numpy as np
 from datetime import datetime
 from statsmodels.tsa.seasonal import MSTL
 from scipy.stats import skew
+from typing import Tuple
+from collections import defaultdict
 import time
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -209,7 +210,92 @@ def avg_temp_tracker(series) -> pd.DataFrame:
 
     return df_at
 
+
+def rolling_mad_outliers(
+        series:pd.Series, 
+        k:float=3.5, 
+        min_samples:int=0, 
+        precomputed_params:dict=None
+    ) -> Tuple[pd.DataFrame, dict]:
+    """
+    Detects outliers in a time series using a rolling Mean Absolute Deviation (MAD) approach.
+    Outliers are defined as points that lie beyond k times the estimated standard deviation from the median.
+    The median and standard deviation estimates are computed separately for each (hour, weekday) pair to account for seasonality.
+
+    Args:
+        series (pd.Series): Time series to compute outliers for.
+        k (float, optional): _description_. Default: 3.5.
+        min_samples (int, optional): Minimum number of samples in the time series to start checking for outliers. Defaults to 0.
+            - If precomputed_params is provided this is ignored and outlier detection starts from the beginning of the series.
+        precomputed_params (dict, optional): Contains precomputed values for the median ad sigma for each hour-weekday pair. Defaults to None.
+            - If this is not provided the function will compute and update these values as it iterates through the time series.
+
+    Raises:
+        IndexError: Input time series must have a DatetimeIndex.
+
+    Returns:
+        Tuple[pd.DataFrame, dict]: _description_
+    """
+
+    if not isinstance(series.index, pd.DatetimeIndex):
+        raise IndexError("Time series must have a Pandas DatetimeIndex")
+
+    # Convert series to df and extract hour/weekday
+    target = series.name
+    df = pd.DataFrame(series)
+    df['hour'] = df.index.hour
+    df['weekday'] = df.index.dayofweek
+
+    hour_weekday_values = defaultdict(list)
     
+    # If not provided, initialise dict containing a rolling history of all values for each (hour,weekday) pair as well as their median and standard deviation estimates
+    hour_weekday_params = (
+        precomputed_params
+        if precomputed_params is not None
+        else defaultdict(lambda: {'median': np.nan, 'sigma': np.nan})
+    )
+
+    if precomputed_params is not None:
+        min_samples = 0
+
+    ### Iterate over every row, applying estimates for median and standard deviation (sigma) and using them to detect outliers
+    ### Update said estimates if a dict of their values was not already provided
+    df_out = df.copy()
+    df_out['outlier'] = 0
+    for sample, (dtindex, row) in enumerate(df.iterrows()):
+        # Initialise values for row
+        key      = (row['hour'],row['weekday'])
+        val      = row[target]
+        all_vals = hour_weekday_values[key]
+        median   = hour_weekday_params[key]['median']
+        sigma    = hour_weekday_params[key]['sigma']
+        
+        # Check if current value lies outside bounds defined above, if so => outlier
+        # Also ensure we only define outliers from a minimum number of samples onwards (early detection will be unstable)
+        if sample >= min_samples:
+            if (np.abs(val - median) > k * sigma) and (sigma > 0):
+                df_out.at[dtindex, 'outlier'] = 1
+
+        # After detecting for outliers we can update our value set
+        all_vals.append(val) 
+
+        # If a parameter dict was not passed we update the estimates for our median and sigma
+        if precomputed_params is None:
+            # Compute components of robust Z-score
+            median = np.median(all_vals)
+            mad    = np.median(np.abs(np.array(all_vals) - median))
+            sigma  = 1.4826 * mad if mad > 0 else np.nan # estimation for the standard deviation
+
+            # Update dict containing historical parameters
+            hour_weekday_params[key]['median'] = median
+            hour_weekday_params[key]['sigma']  = sigma
+
+    logger.debug(f"% of {target} column flagged as outliers: {(df_out['outlier'].sum()/len(df_out['outlier'])):.2f}%")
+
+    return df_out, dict(hour_weekday_params)
+
+
+
 def mstl_resid_outliers(series:pd.Series, k:float=3.5, df_name:str='', params:dict=None) -> pd.DataFrame:
     """
     Detects outliers in a time series by applying Season-Trend decomposition with LOESS for multiple seasonalities.
@@ -304,12 +390,13 @@ def split_event_by_hour(row:pd.Series) -> pd.DataFrame:
 
 
 def validate_time_series(df:pd.DataFrame, periods:int, name:str):
-    """_summary_
+    """
+    Validates that a time series DataFrame has the correct number of total and unique periods, and that its index is a DatetimeIndex.
 
     Args:
-        df (pd.DataFrame): _description_
-        periods (int): _description_
-        name (str): _description_
+        df (pd.DataFrame): Input DataFrame to validate.
+        periods (int): Expected number of periods.
+        name (str): Name of the DataFrame (for logging purposes).
 
     Raises:
         ValueError: If df has the incorrect number of total periods

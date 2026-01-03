@@ -7,10 +7,11 @@ from ev_load_fc.data.preprocessing import (
     mad_outlier_bounds, 
     cap_outliers_mad, 
     avg_temp_tracker, 
-    mstl_resid_outliers,
+    rolling_mad_outliers,
     split_event_by_hour,
     validate_time_series
 )
+from ev_load_fc.features.feature_creation import aggregate_features
 import logging
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ class PreprocessingPipelineConfig:
     mad_thresh: float
     split_date: pd.Timestamp
     sampling_interval: str
+    min_outlier_samples: int
     # Optional runtime parameters
     run_ev: bool
     run_weather: bool
@@ -99,7 +101,7 @@ class PreprocessingPipeline:
             split_date=self.cfg.split_date
         )
 
-        # Remove extreme values based on calculated charger plug power by the x% upper and lower quantiles of the EV train set
+        ### Remove extreme values based on calculated charger plug power by the x% upper and lower quantiles of the EV train set
         ev['kw_drop'] = 0
         for pt in ev_train['plug_type'].unique():
             # Calculate boundaries based on train set only
@@ -112,7 +114,7 @@ class PreprocessingPipeline:
         ev = ev[ev['kw_drop']!=1]
         logger.debug(f"Dropped {pre_kw_filt-len(ev)} rows from EV dataset for having anomalous charging power")
 
-        # Impute missing values for energy using approximate power for charger plug type 
+        ### Impute missing values for energy using approximate power for charger plug type 
         j_plug_cond = (ev['energy'].isna()) & (ev['plug_type']=='J1772')
         n_plug_cond = (ev['energy'].isna()) & (ev['plug_type']=='NEMA 5-20R')
         ev.loc[j_plug_cond, 'energy'] = 6 * ev[j_plug_cond]['duration_hours']
@@ -148,13 +150,13 @@ class PreprocessingPipeline:
 
         ev_agg_train = ev_agg.loc[self.train_date_range]
 
-        # Outlier detection for energy load per hour 
+        ### Outlier detection for energy load per hour 
         # First we calculate paramaters over the train set and apply them
         # Then we apply these parameters over the entire set to detect outliers for the test set.
-        logger.debug(f"Beginning outlier detection for train set energy load using MSTL residuals")
-        ev_agg_train, sigma, median = mstl_resid_outliers(ev_agg_train, k=3.5)
-        logger.debug(f"Beginning outlier detection for test set energy load using MSTL residuals")
-        ev_agg_test,_,_ = mstl_resid_outliers(ev_agg, k=3.5, params={'sigma':sigma,'median':median})
+        logger.debug(f"Beginning outlier detection for train set energy load using rolling MAD method")
+        ev_agg_train, mad_params = rolling_mad_outliers(ev_agg_train, k=self.cfg.mad_thresh, min_samples=self.cfg.min_outlier_samples)
+        logger.debug(f"Beginning outlier detection for test set energy load using rolling MAD method - reusing parameters calculated for train set")
+        ev_agg_test,_ = rolling_mad_outliers(ev_agg, k=self.cfg.mad_thresh, min_samples=0, precomputed_params=mad_params)
         ev_agg_test = ev_agg_test.loc[self.test_date_range]
 
         ev_agg_out = pd.concat([ev_agg_train,ev_agg_test])
@@ -214,7 +216,11 @@ class PreprocessingPipeline:
         weather_agg.index = pd.to_datetime(weather_agg.index)
 
         weather_agg.columns = ['_'.join(map(str, col)).lower() for col in weather_agg.columns] # Deconstruct column index
-        weather_agg.columns = [col+'_dur' for col in weather_agg.columns] # Indicate duration in columns names
+        weather_agg.columns = ['w_'+col+'_dur' for col in weather_agg.columns] # Indicate duration in columns names and add prefix to denote a weather column
+
+        # Aggregate weather event duration by weather event type
+        weather_agg = aggregate_features(df=weather_agg, out_name='w_rain_dur', substr1='rain')
+        weather_agg = aggregate_features(df=weather_agg, out_name='w_fog_dur', substr1='fog')
 
         self.weather = weather_agg
 
@@ -333,6 +339,13 @@ class PreprocessingPipeline:
         traffic_agg.index = pd.to_datetime(traffic_agg.index)
 
         traffic_agg.columns = ['_'.join(map(str, col)).lower() for col in traffic_agg.columns] # Deconstruct column index
+        traffic_agg.columns = ['t_'+col for col in traffic_agg.columns] # Add prefix to indicate traffic column
+
+        # Aggregate traffic event duration and distance by traffic event type 
+        traffic_agg = aggregate_features(df=traffic_agg, out_name='t_cong_dis', substr1='distance_congestion')
+        traffic_agg = aggregate_features(df=traffic_agg, out_name='t_flow_dis', substr1='distance_flow')
+        traffic_agg = aggregate_features(df=traffic_agg, out_name='t_cong_dur', substr1='duration_congestion')
+        traffic_agg = aggregate_features(df=traffic_agg, out_name='t_flow_dur', substr1='duration_flow')
 
         self.traffic = traffic_agg
 

@@ -40,6 +40,7 @@ def build_pipeline_params(ev, weather, temperature, traffic, combine):
         "mad_thresh": CFG["data"]["preprocessing"]["mad_thresholds"],
         "split_date": pd.to_datetime(CFG["data"]["preprocessing"]["split_date"]),
         "sampling_interval": CFG["data"]["preprocessing"]["sampling_interval"],
+        "min_outlier_samples": CFG["data"]["preprocessing"]["min_outlier_samples"],
         
         # Optional runtime parameters
         "run_ev": ev,
