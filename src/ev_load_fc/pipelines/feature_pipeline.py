@@ -4,7 +4,6 @@ import pathlib
 from dataclasses import dataclass 
 from ev_load_fc.data.preprocessing import scale_features
 from ev_load_fc.features.feature_creation import (
-    aggregate_features, 
     time_features, 
     ohe_holidays,
     lag_features, 
@@ -54,31 +53,20 @@ class FeaturePipeline:
         self.cfg = config
 
 
-    def _feature_engineering(self):
+    def _feature_engineering(self, save=True, results=False, raw_combined=None):
 
-        raw_combined = pd.read_csv(
-            self.cfg.combined_path, 
-            parse_dates=['timestamp'], 
-            index_col=['timestamp'], 
-            low_memory=False
-        )
+        # Read in combined data
+        if raw_combined is None:
+            raw_combined = pd.read_csv(
+                self.cfg.combined_path, 
+                parse_dates=['timestamp'], 
+                index_col=['timestamp'], 
+                low_memory=False
+            )
         combined = raw_combined.copy()
-        col_count_1 = combined.shape[1]
-        logger.debug(f"Number of columns in combined dataset: {col_count_1}")
-
-        ## 1 Aggegate features ##
-
-        # Aggregate weather event duration by weather event type
-        combined = aggregate_features(df=combined, out_name='rain_dur', substr1='rain')
-        combined = aggregate_features(df=combined, out_name='fog_dur', substr1='fog')
-        # Aggregate traffic event duration and distance by traffic event type 
-        combined = aggregate_features(df=combined, out_name='cong_dis', substr1='distance_congestion')
-        combined = aggregate_features(df=combined, out_name='flow_dis', substr1='distance_flow')
-        combined = aggregate_features(df=combined, out_name='cong_dur', substr1='duration_congestion')
-        combined = aggregate_features(df=combined, out_name='flow_dur', substr1='duration_flow')
-
-        col_count_2 = combined.shape[1]
-        logger.debug(f"Number of column aggregations: {col_count_2-col_count_1}")
+        col_counts = [combined.shape[1]]
+        counts_done = 0
+        logger.debug(f"Number of columns in combined dataset: {col_counts[counts_done]}")
 
         # Identify features from each data source
         energy_cols = [col for col in combined.columns if any([s in col for s in self.cfg.energy_col_substrs])]
@@ -86,17 +74,17 @@ class FeaturePipeline:
         temperature_cols = [col for col in combined.columns if any([s in col for s in self.cfg.temperature_col_substrs])]
         traffic_cols = [col for col in combined.columns if any([s in col for s in self.cfg.traffic_col_substrs])]
 
-        ## 2 Date features ##
+        ### Date features
 
         combined = time_features(combined)
 
         holidays = ohe_holidays(self.cfg.holiday_list, self.cfg.min_timestamp, self.cfg.max_timestamp)
         combined = combined.merge(holidays, how='left', left_index=True, right_index=True)
 
-        col_count_3 = combined.shape[1]
-        logger.debug(f"Number of date and holiday features created: {col_count_3-col_count_2}")
+        col_counts.append(combined.shape[1]), counts_done += 1
+        logger.debug(f"Number of date and holiday features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
 
-        ## 3 Lag features ##
+        ### Lag features
         lag_dict = {}
         lags = self.cfg.time_feature_dict['lags']
 
@@ -106,10 +94,11 @@ class FeaturePipeline:
 
         combined = lag_features(combined, lag_dict)
 
-        col_count_4 = combined.shape[1]
-        logger.debug(f"Number of lag features created: {col_count_4-col_count_3}")
+        col_counts.append(combined.shape[1]), counts_done += 1
+        logger.debug(f"Number of lag features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
+        col_counts.append(combined.shape[1]), counts_done += 1
 
-        ## 4 Rolling sum features ##
+        ### Rolling sum features
         rw_sum_dict = {}
         rw_sums = self.cfg.time_feature_dict['rolling_sums']
 
@@ -127,10 +116,11 @@ class FeaturePipeline:
 
         combined = rolling_window_features(combined, rw_sum_dict, agg_func='sum')
 
-        col_count_5 = combined.shape[1]
-        logger.debug(f"Number of rolling sum features created: {col_count_5-col_count_4}")
+        col_counts.append(combined.shape[1]), counts_done += 1
+        logger.debug(f"Number of rolling sum features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
+        col_counts.append(combined.shape[1]), counts_done += 1
 
-        ## 5 Rolling mean features ##
+        ### Rolling mean features
         rw_mean_dict = {}
         rw_means = self.cfg.time_feature_dict['rolling_means']
 
@@ -144,10 +134,10 @@ class FeaturePipeline:
 
         combined = rolling_window_features(combined, rw_mean_dict, agg_func='mean')
 
-        col_count_6 = combined.shape[1]
-        logger.debug(f"Number of rolling mean features created: {col_count_6-col_count_5}")
+        col_counts.append(combined.shape[1]), counts_done += 1
+        logger.debug(f"Number of rolling mean features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
 
-        ## 6 Split into input features and target feature(s) ##
+        ### Split into input features and target feature(s)
 
         # Cutoff window size at start of time frame
         all_lags = flatten_nested_dict(self.cfg.time_feature_dict)
@@ -163,7 +153,8 @@ class FeaturePipeline:
         ]
         features = features + self.cfg.holiday_list
 
-        logger.debug(f"Number of input features created: {len(features)}")
+        col_counts.append(combined.shape[1]), counts_done += 1
+        logger.debug(f"Number of input features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
 
         # Input & target sets
         self.X = combined.iloc[max_lag:][features].copy()
@@ -171,8 +162,11 @@ class FeaturePipeline:
         logger.debug(f"Shape of input feature set X: {self.X.shape}")
         logger.debug(f"Shape of target feature set y: {self.y.shape}")
         # Save
-        self.X.to_csv(self.cfg.feature_store / "X.csv", index_label="timestamp")
-        self.y.to_csv(self.cfg.feature_store / "y.csv", index_label="timestamp")
+        if save:
+            self.X.to_csv(self.cfg.feature_store / "X.csv", index_label="timestamp")
+            self.y.to_csv(self.cfg.feature_store / "y.csv", index_label="timestamp")
+        if results:
+            return self.X, self.y
 
 
     def _feature_selection(self):
@@ -230,9 +224,9 @@ class FeaturePipeline:
         if any('hour_' in col for col in X_train_cut.columns):
             add_back.update({'hour_sin','hour_cos'})
         if any('weekday_' in col for col in X_train_cut.columns):
-            add_back.update({'weekday__sin','weekday__cos'})
+            add_back.update({'weekday_sin','weekday_cos'})
         if any('month_' in col for col in X_train_cut.columns):
-            add_back.update({'month__sin','month__cos'})
+            add_back.update({'month_sin','month_cos'})
         # Ensure all holiday features are included
         add_back.update(self.cfg.holidays)
 

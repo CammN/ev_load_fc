@@ -8,7 +8,7 @@ def ts_completeness(df:pd.DataFrame, period:str, n:int, time_col:str)->float:
 
     Args:
         df (pd.DataFrame): Input DataFrame containing time series data.
-        period (str): Time frequency period (e.g., 'h' for hourly, 'D' for daily).
+        period (str): Time frequency period (e.g., "h" for hourly, "D" for daily).
         n (int): Number of periods to consider.
         time_col (str): Name of the time column in the DataFrame.
 
@@ -32,22 +32,22 @@ def ts_completeness(df:pd.DataFrame, period:str, n:int, time_col:str)->float:
     return completeness_ratio
 
 
-def plot_time_series(df:pd.DataFrame, period_col:str, agg_col:str, weekday_split:bool=False, weekday_list:list=[0,1,2,3,4,5,6], agg_type='total')->None:
+def plot_time_series(df:pd.DataFrame, period_col:str, agg_col:str, weekday_split:bool=False, weekday_list:list=[0,1,2,3,4,5,6], agg_type="total")->None:
     """Plot a time series of a columns aggregated over a specified period.
 
     Args:
         df (pd.DataFrame): Time series data with datetime index and energy values.
-        period_col (str): Period column to group by (e.g. 'hourly_datetime', 'date', 'month').
+        period_col (str): Period column to group by (e.g. "hourly_datetime", "date", "month").
         agg_col (str): Column of df to aggregate
         weekday_split (bool, optional): Whether to split the plot by weekdays.
         weekday_list (int, optional): Specific weekdays to plot if weekday_split is True.
-        agg_type (str, optional): 'total' to sum aggregation column, 'mean' to take mean of aggregation column. 
+        agg_type (str, optional): "total" to sum aggregation column, "mean" to take mean of aggregation column. 
 
     Returns:
         None: Displays the plot.
     """
 
-    weekdays = {0:'Monday', 1:'Tuesday', 2:'Wednesday', 3:'Thursday', 4:'Friday', 5:'Saturday', 6:'Sunday'}
+    weekdays = {0:"Monday", 1:"Tuesday", 2:"Wednesday", 3:"Thursday", 4:"Friday", 5:"Saturday", 6:"Sunday"}
 
     ts = df.groupby(by=[period_col.lower()],sort=True)[agg_col].sum()
 
@@ -55,18 +55,18 @@ def plot_time_series(df:pd.DataFrame, period_col:str, agg_col:str, weekday_split
     if weekday_split:
         for i in range(7):
             if i in weekday_list:
-                weekday_condition = df['weekday'] == i
-                if agg_type.lower() == 'total':
+                weekday_condition = df["weekday"] == i
+                if agg_type.lower() == "total":
                     ts = df[weekday_condition].groupby(by=[period_col.lower()],sort=True)[agg_col].sum()
-                elif agg_type.lower() == 'mean':
+                elif agg_type.lower() == "mean":
                     ts = df[weekday_condition].groupby(by=[period_col.lower()],sort=True)[agg_col].mean()
                 if isinstance(ts.index, pd.PeriodIndex):
                     ts.index = ts.index.to_timestamp()
                 plt.plot(ts.index, ts.values, label=weekdays[i])
     else:
-        if agg_type == 'total':
+        if agg_type == "total":
             ts = df.groupby(by=[period_col.lower()],sort=True)[agg_col].sum()
-        elif agg_type == 'mean':
+        elif agg_type == "mean":
             ts = df.groupby(by=[period_col.lower()],sort=True)[agg_col].mean()
         if isinstance(ts.index, pd.PeriodIndex):
                     ts.index = ts.index.to_timestamp()
@@ -81,29 +81,30 @@ def plot_time_series(df:pd.DataFrame, period_col:str, agg_col:str, weekday_split
     plt.show()
 
 
-def check_adf_stationarity(series:pd.Series, regression_type:str='c'):
+def check_adf_stationarity(series:pd.Series, regression_type:str="c"):
     """
     Returns set of Augmented- Dick-Fuller statistics to assess the stationarity of a time series.
     Both constant and constant+trend stationarity can be assessed
 
     Args:
         series (pd.Series): Time series to assess stationarity
-        regression_type (str, optional): Constant/trend order to include in regression. Default: 'c'.
-                                            - 'c' = constant only
-                                            - 'ct' = constant and trend
+        regression_type (str, optional): Constant/trend order to include in regression. Default: "c".
+                                            - "c" = constant only
+                                            - "ct" = constant and trend
     """
 
     # Reference: https://machinelearningmastery.com/time-series-data-stationary-python/
 
     result = adfuller(series.values, regression=regression_type)
 
-    print('ADF Statistic: %f' % result[0])
-    print('p-value: %f' % result[1])
-    print('Critical Values:')
+    print("ADF Statistic: %f" % result[0])
+    print("p-value: %f" % result[1])
+    print("Critical Values:")
     for key, value in result[4].items():
-        print('\t%s: %.3f' % (key, value))
+        print("\t%s: %.3f" % (key, value))
 
-    if (result[1] <= 0.05) & (result[4]['5%'] > result[0]):
+    if (result[1] <= 0.05) & (result[4]["5%"] > result[0]):
         print("\u001b[32mStationary\u001b[0m")
     else:
         print("\x1b[31mNon-stationary\x1b[0m")
+

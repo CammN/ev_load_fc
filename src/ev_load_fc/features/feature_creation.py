@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from pandas.tseries.holiday import USFederalHolidayCalendar as calender
+from typing import Literal
 import logging
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,8 @@ def get_holidays(min_timestamp:datetime, max_timestamp:datetime) -> pd.DataFrame
             holidays_df = pd.concat([holidays_df, new_hol], axis=0)
             curr_year += 1
 
+    return holidays_df
+
 
 def ohe_holidays(holiday_subset:list, min_timestamp:datetime, max_timestamp:datetime) -> pd.DataFrame:
     """
@@ -136,13 +139,14 @@ def lag_features(df:pd.DataFrame, lag_dict:dict) -> pd.DataFrame:
     lag_cols = lag_dict.keys()
 
     for col in lag_cols:
-        for lag in lag_dict[col]:
-            df_lags[f'{col}_lag_{lag}'] = df_lags[col].shift(lag)
+        if col in df_lags.columns:
+            for lag in lag_dict[col]:
+                df_lags[f'{col}_lag_{lag}'] = df_lags[col].shift(lag)
 
     return df_lags
 
 
-def rolling_window_features(df:pd.DataFrame, rw_dict:dict, agg_func:str) -> pd.DataFrame:
+def rolling_window_features(df:pd.DataFrame, rw_dict:dict, agg_func:Literal["mean","sum"]) -> pd.DataFrame:
     """
     Creates rolling window features from given time-series columns.
 

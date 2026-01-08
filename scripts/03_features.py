@@ -23,7 +23,7 @@ def build_pipeline_params(fe, fs):
         "seed": CFG["project"]["seed"],
 
         # Feature creation parameters
-        "target": CFG["features"]["feature_engineering"]["target"],
+        "target": CFG["features"]["target"],
         "holiday_list": list(CFG["features"]["feature_engineering"]["holidays"]),
         "time_feature_dict": CFG["features"]["feature_engineering"]["time_feature_dict"],
         "energy_col_substrs": CFG["features"]["feature_engineering"]["energy_col_substrs"],

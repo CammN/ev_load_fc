@@ -2,7 +2,7 @@
 project:
   name: ev_load_fc
   seed: 42
-  logging_level: 10 # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL
+  logging_level: 20 # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL
 
 
 paths:
@@ -17,6 +17,7 @@ paths:
   # Other
   images: "images"
   logs: "logs"
+  configs: "configs"
 
 
 files:
@@ -68,9 +69,12 @@ data:
   preprocessing:
     # Miscelaneous
     sampling_interval: "1h"
-    plug_power_quantile_bound: 0.001 # Decimal value defining what upper and lower quantiles (as cutoffs) to define for estimated plug charging power in the EV datasets e.g. 0.001 means we restrict the EV dataset to be between the 0.1% and 99.9% quantiles for plug power
-    mad_thresholds: 4
-    split_date: "2019-08-01" # 
+    plug_power_quantile_bound: 0.001 # Decimal value defining what upper and lower quantiles (as cutoffs) to define for estimated plug charging power in the EV datasets 
+                                     # e.g. 0.001 means we restrict the EV dataset to be between the 0.1% and 99.9% quantiles for plug power
+    mad_thresholds: 3.5
+    split_date: "2019-08-01" # Cutoff date between train and test samples
+    min_outlier_samples: 720 # When computing parameters to detect outliers using a rolling MAD method, 
+                             # This value defines from which point we will start detecting outliers in the train set (see ev_load_fc.data.preprocessing.rolling_mad_outliers) 
     # Columns of the raw EV dataset necessary for preprocessing
     ev_keep_cols:
       - "starttime"
@@ -109,10 +113,11 @@ data:
 
 features:
 
+  # Target column
+  target: 'energy'
+
   # Parameters for the creation of exogenous features
   feature_engineering:
-    # Target column
-    target: 'energy'
     # Calender holidays to create one-hot-encodings of
     holidays:
       - "Independence Day"
@@ -141,14 +146,42 @@ features:
   # Feature selection to create training set
   feature_selection:
     scale_method: ""
-    k_1: 30 # Number of features to select in first round of feature elimination
+    k_1: 30            # Number of features to select in first round of feature elimination
     fe_method_1: "f"   # Method to select K best features from X_train - 'f', 'mi', 'imp', 'rfe', 'rfecv'
-    k_2: 20 # Number of features to select in second round of feature elimination (must have k_1 >= k_2)
+    k_2: 20            # Number of features to select in second round of feature elimination (must have k_1 >= k_2)
     fe_method_2: "rfe" # Method to select K best features from X_train - 'f', 'mi', 'imp', 'rfe', 'rfecv'
     correlation_threshold: 1.0
   
+training:
+
+  feature_version: "f_30_rfe_20" # Select version of data based on feature selection method
+                                 # Use format "{fe_method_1}_{k_1}_{fe_method_2}_{k_2}"
+
   mlflow:
+    tracking_uri: "http://127.0.0.1:5000/"
+    experiment_name: "Tree Based Models"
 
   optuna:
+    verbosity: 30 # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL
+    models_to_run: ["Random Forest"] # List of models to train using Optuna studies
+                                     # Choose from: "Random Forest" "AdaBoost" "XGBoost" "LightGBM" "CatBoost" "Prophet"
+    trials: 250 # How many trials each Optuna study should have 
+    metric: "rsme" # Evaluation metric used in Optuna trials, choose from: 
+    splits: 4 # Number of splits for time series cross-validation
+
+    search_spaces:
+      Random Forest:
+        n_estimators : [50,500]
+        max_depth : [6,36]
+        min_samples_split : [5,50]
+        min_samples_leaf : [5,100]
+        max_leaf_nodes : [20,60]
+        max_features : ['sqrt']
+        n_jobs : [-1]
+      AdaBoost:
+        n_estimators: [50,500]
+        learning_rate : [0.01,0.1]
+        loss : ['linear','square','exponential']
+      
 
     

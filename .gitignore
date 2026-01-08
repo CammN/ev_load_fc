@@ -2,7 +2,7 @@
 datasets/
 models/
 logs/
-mlflow_test.ipynb
+mlruns/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

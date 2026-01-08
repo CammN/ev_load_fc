@@ -1,56 +1,57 @@
 import argparse
 import logging
-import pandas as pd
 from ev_load_fc.config import CFG, resolve_path
 from ev_load_fc.utils.logging import setup_logging
 from ev_load_fc.pipelines.training_pipeline import TrainingPipeline, TrainingPipelineConfig
+from ev_load_fc.training.registry import MODEL_REGISTRY
+logger = logging.getLogger(__name__)
 logging_level = CFG["project"]["logging_level"]
 
 
-def build_pipeline_params(fs):
+def build_pipeline_params():
 
-    processed = resolve_path(CFG["paths"]["processed_data"])
+    # processed = resolve_path(CFG["paths"]["processed_data"])
 
     return {
         # Paths
-        "feature_store":  resolve_path(CFG["paths"]["feature_store"]),
-        # Pre training parameters
-        "scale_method": CFG["features"]["feature_selection"]["scale_method"],
-        "k_1": CFG["features"]["feature_selection"]["k_1"],
-        "fe_method_1": CFG["features"]["feature_selection"]["fe_method_1"],
-        "k_2": CFG["features"]["feature_selection"]["k_2"],
-        "fe_method_2": CFG["features"]["feature_selection"]["fe_method_2"],
-        "corr_thresh": CFG["features"]["feature_selection"]["correlation_threshold"],
-        "holidays": set(CFG["features"]["feature_engineering"]["holidays"]),
-        # Other
-        "split_date": pd.to_datetime(CFG["data"]["preprocessing"]["split_date"]),
+        "feature_store": resolve_path(CFG["paths"]["feature_store"]),
+        "configs": resolve_path(CFG["paths"]["configs"]),
+        # MLFlow parameters
+        "tracking_uri": CFG["training"]["mlflow"]["tracking_uri"],
+        "experiment_name": CFG["training"]["mlflow"]["experiment_name"],
+        # Optuna parameters
+        "verbosity": CFG["training"]["optuna"]["verbosity"],
+        "models_to_run": CFG["training"]["optuna"]["models_to_run"],
+        "trials": CFG["training"]["optuna"]["trials"],
+        "metric": CFG["training"]["optuna"]["metric"],
+        "splits": CFG["training"]["optuna"]["splits"],
+        "search_spaces": CFG["training"]["optuna"]["search_spaces"],
+        # Miscellaneous
         "seed": CFG["project"]["seed"],
-        # Optional runtime parameters
-        "run_feat_select": fs,
+        "target": CFG["features"]["target"],
+        "feature_version": CFG["training"]["feature_version"]
     }
 
 
-def parse_args():
-    """Parse command line arguments for running the feature selection and model training pipeline."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument( "--fs", action="store_true", help="Perform feature selection.")
+# def parse_args():
+#     """Parse command line arguments for running the model training pipeline."""
+#     parser = argparse.ArgumentParser()
+#     parser.add_argument( "--fs", action="store_true", help="Perform feature selection.")
 
-    return parser.parse_args()
+#     return parser.parse_args()
 
 
 def main():
     # Initialise logging and CLI args
     logger = setup_logging("training_pipeline.log", level=logging_level)
-    args = parse_args()
+    # args = parse_args()
 
     # If no flags are provided in CLI, run everything
-    if not (args.fs):
-        args.fs = True
+    # if not (args.fs):
+    #     args.fs = True
 
     # Build pipeline parameters (including run parameters) and convert to dataclass
-    pipeline_params = build_pipeline_params(
-        args.fs
-    )
+    pipeline_params = build_pipeline_params()
     cfg = TrainingPipelineConfig(**pipeline_params)
 
     pipeline = TrainingPipeline(config=cfg)
