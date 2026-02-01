@@ -15,11 +15,11 @@ logger = logging.getLogger(__name__)
 def clean_enrich_split(
         df:pd.DataFrame, 
         df_name:str,
+        split_date:datetime, 
         keep_cols:list = [], 
         positive_cols:list = [],
         log_cols:list = [],
         type_filt:list = [],
-        split_date:datetime = [], 
 ):
     """
     Clean, enrich, and split a DataFrame to retrieve train set.

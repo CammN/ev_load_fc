@@ -77,15 +77,10 @@ class EvaluationPlots:
         plt.grid(axis="x")
         plt.tight_layout()
 
-        # Save fig
-        file_name = f"corr_{self.run_name}.png"
-        save_path = self.model_plots / file_name
-        plt.savefig(save_path, format="png", dpi=600)
-
         # prevent matplotlib from displaying the chart every time we call this function
         plt.close(fig)
 
-        return fig, save_path
+        return fig
 
 
     def plot_feature_importance(self) -> plt.Figure:
@@ -130,11 +125,6 @@ class EvaluationPlots:
         plt.grid(axis="x")
         plt.tight_layout()
 
-        # Save fig
-        file_name = f"feat_imp_{self.run_name}.png"
-        save_path = self.model_plots / file_name
-        plt.savefig(save_path, format="png", dpi=600)
-
         # prevent matplotlib from displaying the chart every time we call this function
         plt.close(fig)
 
@@ -173,13 +163,10 @@ class EvaluationPlots:
         plt.grid(axis="y")
         plt.tight_layout()
 
-        # Save fig
-        file_name = f"resid_{self.run_name}.png"
-        save_path = self.model_plots / file_name
-        plt.savefig(save_path, format="png", dpi=600)
-
         # Show the plot
         plt.close(fig)
+
+        return fig
 
 
 

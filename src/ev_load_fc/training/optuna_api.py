@@ -2,6 +2,7 @@ import pandas as pd
 import math
 import numpy as np
 import mlflow
+import cupy
 from sklearn.metrics import root_mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from prophet.diagnostics import cross_validation
@@ -107,6 +108,15 @@ def objective(
         description=f"Child run {trial.number} for {parent_run_id}",
         ) as child_run:
 
+        mlflow.set_tags(
+            tags={
+                "project": "EV Load Forecasting",
+                "optimizer_engine": "optuna",
+                "model_family": model_name,
+                "level": "child",
+            }
+        )
+
         params = {}
         # Populate params dict from search_space
         for param, range in search_space.items():
@@ -133,6 +143,9 @@ def objective(
         est = build_model(model_name=model_name, params=params, holidays_df=holidays_df)
         
         X = train.drop(columns=[target])
+        # Moving 
+        if model_name == "XGBoost" and params.get("device") == "cuda":
+            X = cupy.array(X)
         y = train[target]
 
         # Train and score model using cross validation
@@ -161,13 +174,6 @@ def objective(
         # Log child run to MLflow
         mlflow.log_params(params)
         mlflow.log_metric("rmse", mean_score)
-        mlflow.set_tags(
-            tags={
-                "project": "EV Load Forecasting",
-                "optimizer_engine": "optuna",
-                "model_family": model_name,
-            }
-        )
 
     return mean_score
 

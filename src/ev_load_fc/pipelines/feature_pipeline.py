@@ -81,7 +81,8 @@ class FeaturePipeline:
         holidays = ohe_holidays(self.cfg.holiday_list, self.cfg.min_timestamp, self.cfg.max_timestamp)
         combined = combined.merge(holidays, how='left', left_index=True, right_index=True)
 
-        col_counts.append(combined.shape[1]), counts_done += 1
+        col_counts.append(combined.shape[1])
+        counts_done += 1
         logger.debug(f"Number of date and holiday features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
 
         ### Lag features
@@ -94,9 +95,11 @@ class FeaturePipeline:
 
         combined = lag_features(combined, lag_dict)
 
-        col_counts.append(combined.shape[1]), counts_done += 1
+        col_counts.append(combined.shape[1])
+        counts_done += 1
         logger.debug(f"Number of lag features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
-        col_counts.append(combined.shape[1]), counts_done += 1
+        col_counts.append(combined.shape[1])
+        counts_done += 1
 
         ### Rolling sum features
         rw_sum_dict = {}
@@ -116,9 +119,11 @@ class FeaturePipeline:
 
         combined = rolling_window_features(combined, rw_sum_dict, agg_func='sum')
 
-        col_counts.append(combined.shape[1]), counts_done += 1
+        col_counts.append(combined.shape[1])
+        counts_done += 1
         logger.debug(f"Number of rolling sum features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
-        col_counts.append(combined.shape[1]), counts_done += 1
+        col_counts.append(combined.shape[1])
+        counts_done += 1
 
         ### Rolling mean features
         rw_mean_dict = {}
@@ -134,7 +139,8 @@ class FeaturePipeline:
 
         combined = rolling_window_features(combined, rw_mean_dict, agg_func='mean')
 
-        col_counts.append(combined.shape[1]), counts_done += 1
+        col_counts.append(combined.shape[1])
+        counts_done += 1
         logger.debug(f"Number of rolling mean features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
 
         ### Split into input features and target feature(s)
@@ -153,7 +159,8 @@ class FeaturePipeline:
         ]
         features = features + self.cfg.holiday_list
 
-        col_counts.append(combined.shape[1]), counts_done += 1
+        col_counts.append(combined.shape[1])
+        counts_done += 1
         logger.debug(f"Number of input features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
 
         # Input & target sets

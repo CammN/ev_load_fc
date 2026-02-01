@@ -163,13 +163,14 @@ training:
 
   optuna:
     verbosity: 30 # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL
-    models_to_run: ["Random Forest"] # List of models to train using Optuna studies
+    models_to_run: ["XGBoost"] # List of models to train using Optuna studies
                                      # Choose from: "Random Forest" "AdaBoost" "XGBoost" "LightGBM" "CatBoost" "Prophet"
-    trials: 250 # How many trials each Optuna study should have 
+    trials: 5 # How many trials each Optuna study should have 
     metric: "rsme" # Evaluation metric used in Optuna trials, choose from: 
     splits: 4 # Number of splits for time series cross-validation
 
     search_spaces:
+
       Random Forest:
         n_estimators : [50,500]
         max_depth : [6,36]
@@ -178,10 +179,33 @@ training:
         max_leaf_nodes : [20,60]
         max_features : ['sqrt']
         n_jobs : [-1]
+
       AdaBoost:
         n_estimators: [50,500]
         learning_rate : [0.01,0.1]
         loss : ['linear','square','exponential']
-      
+
+      XGBoost:
+        booster: ['gbtree']
+        device: ['cuda']
+        # Common params
+        n_estimators: [50,250]
+        learning_rate: [0.01,0.2]
+        max_depth: [3,20]
+        subsample: [0.5,1.0]
+        colsample_bytree: [0.5,1.0]
+        min_split_loss: [0,10]
+        reg_lambda: [0,10]
+        reg_alpha: [0,10]
+        min_child_weight: [1,10]
+        max_leaves: [10,80]
+        tree_method: ['approx','hist']
+        # DART specific params
+        sample_type: ['uniform','weighted']
+        normalize_type: ['tree','forest']
+        rate_drop: [0.0,0.3]
+        skip_drop: [0.0,0.3]
+        max_drop: [0,10]
+
 
     

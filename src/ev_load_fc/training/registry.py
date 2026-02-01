@@ -53,12 +53,19 @@ def build_model(model_name: str, params: dict, holidays_df:pd.DataFrame=None):
     Returns:
         (Any): An instance of the specified model initialized with the given parameters.
     """
+    
     try:
         model_factory = MODEL_REGISTRY[model_name]
     except KeyError:
         raise ValueError(f"Unknown model: {model_name}")
-
     model_cls = model_factory()
+
+    # Prophet requires holidays to be passed during initialization
     if holidays_df is not None:
         return model_cls(holidays=holidays_df, **params)
+    # XGBoost dart-specific params should be removed if booster != dart so they are not suggested in Optuna studies
+    if model_name == "XGBoost" and params.get("booster") != "dart":
+        for dart_param in ["sample_type","normalize_type","rate_drop","skip_drop","max_drop"]:
+            del params[dart_param]
+
     return model_cls(**params)

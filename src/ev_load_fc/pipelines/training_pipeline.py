@@ -20,6 +20,7 @@ class TrainingPipelineConfig:
     # Paths
     feature_store: pathlib.Path
     configs: pathlib.Path
+    images: pathlib.Path
     # MLFlow parameters
     tracking_uri: str
     experiment_name: str
@@ -48,10 +49,16 @@ class TrainingPipeline:
         logging.info("Loading data...")
 
         # Load complete train and test sets
-        self.train_path = f"train_{self.cfg.feature_version}.csv"
-        self.test_path  = f"test_{self.cfg.feature_version}.csv"
-        self.train = pd.read_csv(self.cfg.feature_store / self.train_path, parse_dates=["timestamp"], index_col="timestamp")
-        self.test  = pd.read_csv(self.cfg.feature_store / self.test_path, parse_dates=["timestamp"], index_col="timestamp")
+        self.train_path = self.cfg.feature_store/f"train_{self.cfg.feature_version}.csv"
+        self.test_path  = self.cfg.feature_store/f"test_{self.cfg.feature_version}.csv"
+        self.train = pd.read_csv(self.train_path, parse_dates=["timestamp"], index_col="timestamp")
+        self.test  = pd.read_csv(self.test_path, parse_dates=["timestamp"], index_col="timestamp")
+
+        # Ensure integer columns are float64 for MLflow logging
+        for col in self.train.select_dtypes(include='int64').columns:
+            self.train[col] = self.train[col].astype('float64')
+        for col in self.test.select_dtypes(include='int64').columns:
+            self.test[col] = self.test[col].astype('float64')
 
         logger.info("Data loaded.")
 
@@ -61,7 +68,7 @@ class TrainingPipeline:
         # Get number of previous runs for this model
         model_runs = mlflow.search_runs(
             experiment_ids=[experiment_id],
-            filter_string=f"tags.model_family='{model_name}'",
+            filter_string=f"tags.model_family='{model_name}' AND tags.level='parent'",
         )
         next_run_number = len(model_runs) + 1
         run_name = f"{model_name} run {next_run_number}"
@@ -71,8 +78,19 @@ class TrainingPipeline:
             experiment_id=experiment_id, 
             run_name=run_name, 
             nested=True,
-            description=f"Parent run {next_run_number} of {model_name} in experiment {experiment_id}"
+            description=f"Parent run {next_run_number} of {model_name} in experiment {experiment_id}",
         ) as parent_run:
+
+            # Log tags
+            mlflow.set_tags(
+                tags={
+                    "project": "EV Load Forecasting",
+                    "optimizer_engine": "optuna",
+                    "model_family": model_name,
+                    "feature_set_version": self.cfg.feature_version,
+                    "level": "parent",
+                }
+            )
             
             parent_run_id = parent_run.info.run_id
 
@@ -108,6 +126,7 @@ class TrainingPipeline:
                 train_path=self.train_path,
                 test_path=self.test_path,
                 config_dir=self.cfg.configs,
+                images_dir=self.cfg.images,
                 run_num=next_run_number,
             )
 

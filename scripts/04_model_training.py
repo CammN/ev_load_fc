@@ -16,6 +16,7 @@ def build_pipeline_params():
         # Paths
         "feature_store": resolve_path(CFG["paths"]["feature_store"]),
         "configs": resolve_path(CFG["paths"]["configs"]),
+        "images": resolve_path(CFG["paths"]["images"]),
         # MLFlow parameters
         "tracking_uri": CFG["training"]["mlflow"]["tracking_uri"],
         "experiment_name": CFG["training"]["mlflow"]["experiment_name"],

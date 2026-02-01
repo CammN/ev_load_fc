@@ -4,6 +4,7 @@ from pathlib import Path
 from optuna.study import Study
 from optuna.visualization import plot_param_importances, plot_optimization_history
 from mlflow.data.pandas_dataset import PandasDataset
+from mlflow.data.sources import LocalArtifactDatasetSource
 from pandas.tseries.holiday import USFederalHolidayCalendar as calender
 from ev_load_fc.training.registry import build_model 
 from ev_load_fc.training.evaluation import EvaluationPlots
@@ -36,12 +37,13 @@ def parent_logging(
     study:Study,
     model_name:str,
     feature_version:str,
-    train:PandasDataset,
-    test:PandasDataset,
+    train:pd.DataFrame,
+    test:pd.DataFrame,
     target:str,
     train_path:Path,
     test_path:Path,
     config_dir:Path,
+    images_dir:Path,
     run_num:int,
 ) -> None:
     """
@@ -65,26 +67,18 @@ def parent_logging(
     mlflow.log_params(study.best_params)
     mlflow.log_metric("best_rmse", study.best_value)
 
-    # Log tags
-    mlflow.set_tags(
-        tags={
-            "project": "EV Load Forecasting",
-            "optimizer_engine": "optuna",
-            "model_family": model_name,
-            "feature_set_version": feature_version,
-        }
-    )
-
     # Create MLFlow datasets
+    train_source = LocalArtifactDatasetSource(str(train_path))
+    test_source = LocalArtifactDatasetSource(str(test_path))
     train_log = mlflow.data.from_pandas(
         train,
-        source=train_path,
+        source=train_source,
         name=f"ev_fc_train-{feature_version}",
         targets=target,
     )
     test_log = mlflow.data.from_pandas(
         test,
-        source=test_path,
+        source=test_source,
         name=f"ev_fc_test-{feature_version}",
         targets=target,
     )
@@ -95,7 +89,7 @@ def parent_logging(
     mlflow.log_input(test_log, context="testing", tags={"feature_version":feature_version})
 
     # Log config.yaml
-    mlflow.log_artifact(local_path=config_dir/"config.yaml", artifact_path="config")
+    mlflow.log_artifact(local_path=str(config_dir/"config.yaml"), artifact_path="config")
 
     if model_name == "Prophet":
         cal = calender()
@@ -131,17 +125,22 @@ def parent_logging(
     )
     # Log the correlation plot
     correlation_plot = plotter.plot_correlation_with_target()
-    mlflow.log_figure(figure=correlation_plot, artifact_file=f"correlations_{model_name}_{run_num}.png")
+    corr_path = str(images_dir/"plots"/f"{model_name}_{run_num}_correlations.png")
+    mlflow.log_figure(figure=correlation_plot, artifact_file=corr_path)
     # Log the feature importances plot
     importances = plotter.plot_feature_importance()
-    mlflow.log_figure(figure=importances, artifact_file=f"feature_importances_{model_name}_{run_num}.png")
+    feat_imp_path = str(images_dir/"plots"/f"{model_name}_{run_num}_feature_importances.png")
+    mlflow.log_figure(figure=importances, artifact_file=feat_imp_path)
     # Log the residuals plot
     residuals = plotter.plot_residuals()
-    mlflow.log_figure(figure=residuals, artifact_file=f"residuals_{model_name}_{run_num}.png")
+    resid_path = str(images_dir/"plots"/f"{model_name}_{run_num}_residuals.png")
+    mlflow.log_figure(figure=residuals, artifact_file=resid_path)
     # Optuna study plots
     fig_param_importance = plot_param_importances(study)
     fig_optimization_history = plot_optimization_history(study)
-    mlflow.log_figure(fig_param_importance,artifact_file=f"param_importances_{model_name}_{run_num}.html")
-    mlflow.log_figure(fig_optimization_history,artifact_file=f"optimization_history_{model_name}_{run_num}.html")
+    param_imp_path = str(images_dir/"plots"/f"{model_name}_{run_num}_param_importances.html")
+    opt_hist_path = str(images_dir/"plots"/f"{model_name}_{run_num}_optimization_history.html")
+    mlflow.log_figure(fig_param_importance,artifact_file=param_imp_path)
+    mlflow.log_figure(fig_optimization_history,artifact_file=opt_hist_path)
 
     
