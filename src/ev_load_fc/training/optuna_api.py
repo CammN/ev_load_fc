@@ -2,6 +2,8 @@ import pandas as pd
 import math
 import numpy as np
 import mlflow
+from optuna.trial import Trial, FrozenTrial
+from optuna.study import Study
 from sklearn.metrics import root_mean_squared_error, mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit, cross_validate
 from prophet.diagnostics import cross_validation
@@ -77,7 +79,7 @@ def cv_score_prophet_model(model:Prophet, y:pd.Series, n_splits:int) -> dict:
 
 
 def objective(
-        trial,
+        trial:Trial,
         train:pd.DataFrame,
         target:str,
         model_name:str,
@@ -188,7 +190,7 @@ def objective(
     return mean_rmse if metric == "rmse" else mean_mae
 
 
-def champion_callback(study, frozen_trial):
+def champion_callback(study:Study, frozen_trial:FrozenTrial):
     # Reference: https://mlflow.org/docs/latest/ml/traditional-ml/tutorials/hyperparameter-tuning/notebooks/hyperparameter-tuning-with-child-runs/
     """
     Logging callback that will report when a new trial iteration improves upon existing
