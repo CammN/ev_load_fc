@@ -93,8 +93,6 @@ def check_adf_stationarity(series:pd.Series, regression_type:str="c"):
                                             - "ct" = constant and trend
     """
 
-    # Reference: https://machinelearningmastery.com/time-series-data-stationary-python/
-
     result = adfuller(series.values, regression=regression_type)
 
     print("ADF Statistic: %f" % result[0])

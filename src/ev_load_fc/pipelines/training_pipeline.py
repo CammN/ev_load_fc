@@ -3,26 +3,21 @@ import pathlib
 import mlflow
 import optuna
 from dataclasses import dataclass
-from ev_load_fc.training.mlflow_api import get_or_create_experiment, parent_logging
-from ev_load_fc.training.optuna_api import (
-    prophet_df_format,
-    cv_score_prophet_model,
-    objective,
-    champion_callback,
-
-)
+from ev_load_fc.training.mlflow_api import init_mlflow, backup_mlflow_db, get_or_create_experiment, parent_logging
+from ev_load_fc.training.optuna_api import objective, champion_callback
 import logging
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class TrainingPipelineConfig:
-    # Paths
+    # Paths and data
     feature_store: pathlib.Path
     configs: pathlib.Path
     images: pathlib.Path
+    train: str
+    test: str
     # MLFlow parameters
-    tracking_uri: str
     experiment_name: str
     # Optuna parameters
     verbosity: int
@@ -49,8 +44,8 @@ class TrainingPipeline:
         logging.info("Loading data...")
 
         # Load complete train and test sets
-        self.train_path = self.cfg.feature_store/f"train_{self.cfg.feature_version}.csv"
-        self.test_path  = self.cfg.feature_store/f"test_{self.cfg.feature_version}.csv"
+        self.train_path = self.cfg.feature_store/f"{self.cfg.train}_{self.cfg.feature_version}.csv"
+        self.test_path  = self.cfg.feature_store/f"{self.cfg.test}_{self.cfg.feature_version}.csv"
         self.train = pd.read_csv(self.train_path, parse_dates=["timestamp"], index_col="timestamp")
         self.test  = pd.read_csv(self.test_path, parse_dates=["timestamp"], index_col="timestamp")
 
@@ -70,9 +65,16 @@ class TrainingPipeline:
             experiment_ids=[experiment_id],
             filter_string=f"tags.model_family='{model_name}' AND tags.level='parent'",
         )
-        next_run_number = len(model_runs) + 1
+        if len(model_runs) > 0:
+            last_run_name = model_runs['tags.mlflow.runName'][0]
+            last_run_number = last_run_name[-1]
+            next_run_number = int(last_run_number) + 1
+        else:
+            next_run_number = 1
         run_name = f"{model_name} run {next_run_number}"
-        
+
+        logger.info(f"Beginning MLFlow run: {run_name}")
+
         # Initiate the parent run and call the hyperparameter tuning child run logic
         with mlflow.start_run(
             experiment_id=experiment_id, 
@@ -97,52 +99,53 @@ class TrainingPipeline:
             # Initialize the Optuna study
             study = optuna.create_study(direction="maximize")
 
-            # Execute the hyperparameter optimization trials.
-            # Note the addition of the `champion_callback` inclusion to control our logging
-            study.optimize(
-                lambda trial: objective(
-                    trial=trial,
-                    train=self.train,
-                    target=self.cfg.target,
+            try:
+
+                # Execute the hyperparameter optimization trials.
+                # Note the addition of the `champion_callback` inclusion to control our logging
+                study.optimize(
+                    lambda trial: objective(
+                        trial=trial,
+                        train=self.train,
+                        target=self.cfg.target,
+                        model_name=model_name,
+                        search_space=self.cfg.search_spaces[model_name],
+                        n_splits=self.cfg.splits,
+                        experiment_id=experiment_id,
+                        parent_run_id=parent_run_id,
+                        seed=None,
+                    ),
+                    n_trials=self.cfg.trials, 
+                    callbacks=[champion_callback]
+                )
+            finally:
+                # Log key data, artifacts and metadata of MLFlow parent run
+                parent_logging(
+                    study=study,
                     model_name=model_name,
-                    search_space=self.cfg.search_spaces[model_name],
-                    n_splits=self.cfg.splits,
-                    experiment_id=experiment_id,
-                    parent_run_id=parent_run_id,
-                    seed=self.cfg.seed,
-                ),
-                n_trials=self.cfg.trials, 
-                callbacks=[champion_callback]
-            )
+                    feature_version=self.cfg.feature_version,
+                    train=self.train,
+                    test=self.test,
+                    target=self.cfg.target,
+                    train_path=self.train_path,
+                    test_path=self.test_path,
+                    config_dir=self.cfg.configs,
+                    images_dir=self.cfg.images,
+                    run_num=next_run_number,
+                )
+            
 
-            # Log key data, artifacts and metadata of MLFlow parent run
-            parent_logging(
-                study=study,
-                model_name=model_name,
-                feature_version=self.cfg.feature_version,
-                train=self.train,
-                test=self.test,
-                target=self.cfg.target,
-                train_path=self.train_path,
-                test_path=self.test_path,
-                config_dir=self.cfg.configs,
-                images_dir=self.cfg.images,
-                run_num=next_run_number,
-            )
+    def run(self):
 
-            # # Get the logged model uri so that we can load it from the artifact store
-            # model_uri = mlflow.get_artifact_uri(artifact_path)
+        init_mlflow()
 
-
-    def _loop_studies(self):
+        backup_mlflow_db()
 
         experiment_id = get_or_create_experiment(self.cfg.experiment_name)
 
         self._load_data()
 
         optuna.logging.set_verbosity(self.cfg.verbosity)
-
-        mlflow.set_tracking_uri(self.cfg.tracking_uri)
         
         for model_name in self.cfg.models_to_run:
 
@@ -150,7 +153,3 @@ class TrainingPipeline:
                 model_name=model_name,
                 experiment_id=experiment_id,
             )
-
-
-    def run(self):
-        self._loop_studies()

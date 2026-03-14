@@ -2,8 +2,8 @@ import pandas as pd
 import numpy as np
 import pathlib
 from dataclasses import dataclass 
-from ev_load_fc.data.preprocessing import scale_features
 from ev_load_fc.features.feature_creation import (
+    detrend,
     time_features, 
     ohe_holidays,
     lag_features, 
@@ -11,15 +11,20 @@ from ev_load_fc.features.feature_creation import (
     flatten_nested_dict,
 )
 from ev_load_fc.features.feature_selection import k_by_scores
+from ev_load_fc.config import PROJECT_ROOT
 import logging
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class FeaturePipelineConfig:
-    # Paths
+    # Paths and files
     combined_path: pathlib.Path
     feature_store: pathlib.Path
+    X_set: str
+    y_set: str
+    train: str
+    test: str
     # Miscellaneous
     min_timestamp: pd.Timestamp
     max_timestamp: pd.Timestamp
@@ -27,6 +32,7 @@ class FeaturePipelineConfig:
     seed: int
     # Feature creation parameters
     target: str
+    detrend: bool
     holiday_list: list
     time_feature_dict: dict
     energy_col_substrs: list
@@ -51,7 +57,8 @@ class FeaturePipeline:
 
     def __init__(self, config: FeaturePipelineConfig):
         self.cfg = config
-
+        self.version = f"{self.cfg.fe_method_1}_{self.cfg.k_1}_{self.cfg.fe_method_2}_{self.cfg.k_2}"
+            
 
     def _feature_engineering(self, save=True, results=False, raw_combined=None):
 
@@ -67,6 +74,27 @@ class FeaturePipeline:
         col_counts = [combined.shape[1]]
         counts_done = 0
         logger.debug(f"Number of columns in combined dataset: {col_counts[counts_done]}")
+
+        ## Detrend target variable if required
+        if self.cfg.detrend:
+            # Perform detrend
+            slope, intercept = detrend(combined[combined.index<self.cfg.split_date][self.cfg.target])
+            t = np.arange(len(combined))
+            combined[self.cfg.target] = combined[self.cfg.target] - (slope * t + intercept)
+            # Save detrend parameters
+            detrend_params_path = PROJECT_ROOT / 'configs' / 'detrend_params.csv'
+            if detrend_params_path.exists():
+                detrend_params = pd.read_csv(detrend_params_path)
+            else:
+                detrend_params = pd.DataFrame(columns=['date_key','slope','intercept'])
+            date_key = f"{combined.index.min()}|{self.cfg.split_date}|{combined.index.max()}"
+            if date_key not in detrend_params['date_key'].unique():
+                new_param_row = pd.DataFrame([{
+                    'date_key':date_key,
+                    'slope':slope,
+                    'intercept':intercept}])
+                detrend_params = pd.concat([detrend_params, new_param_row])
+                detrend_params.to_csv(detrend_params_path, index=False)
 
         # Identify features from each data source
         energy_cols = [col for col in combined.columns if any([s in col for s in self.cfg.energy_col_substrs])]
@@ -170,8 +198,8 @@ class FeaturePipeline:
         logger.debug(f"Shape of target feature set y: {self.y.shape}")
         # Save
         if save:
-            self.X.to_csv(self.cfg.feature_store / "X.csv", index_label="timestamp")
-            self.y.to_csv(self.cfg.feature_store / "y.csv", index_label="timestamp")
+            self.X.to_csv(self.cfg.feature_store / f"{self.cfg.X_set}.csv", index_label="timestamp")
+            self.y.to_csv(self.cfg.feature_store / f"{self.cfg.y_set}.csv", index_label="timestamp")
         if results:
             return self.X, self.y
 
@@ -181,21 +209,21 @@ class FeaturePipeline:
 
         # Read in input and target features 
         X = pd.read_csv(
-            self.cfg.feature_store / "X.csv", 
+            self.cfg.feature_store / f"{self.cfg.X_set}.csv", 
             parse_dates=['timestamp'], 
             index_col=['timestamp'], 
             low_memory=False
         )
         y = pd.read_csv(
-            self.cfg.feature_store / "y.csv", 
+            self.cfg.feature_store / f"{self.cfg.y_set}.csv", 
             parse_dates=['timestamp'], 
             index_col=['timestamp'], 
             low_memory=False
         )
 
         # Scale features (optional)
-        if len(self.cfg.scale_method) > 0:
-            X = scale_features(X, self.cfg.scale_method)
+        # if len(self.cfg.scale_method) > 0:
+        #     X = scale_features(X, self.cfg.scale_method)
 
         # Split into train and test
         X_train = X[X.index <  self.cfg.split_date].copy()
@@ -249,10 +277,8 @@ class FeaturePipeline:
         train = pd.concat([X_train, y_train], axis=1)
         test  = pd.concat([X_test, y_test], axis=1)
 
-        version = f"{self.cfg.fe_method_1}_{self.cfg.k_1}_{self.cfg.fe_method_2}_{self.cfg.k_2}"
-
-        train.to_csv(self.cfg.feature_store / f"train_{version}.csv", index=True, index_label='timestamp')
-        test.to_csv(self.cfg.feature_store / f"test_{version}.csv", index=True, index_label='timestamp')
+        train.to_csv(self.cfg.feature_store / f"{self.cfg.train}_{self.version}.csv", index=True, index_label='timestamp')
+        test.to_csv(self.cfg.feature_store / f"{self.cfg.test}_{self.version}.csv", index=True, index_label='timestamp')
         logger.debug(f"Saved reduced train and tests sets to the {self.cfg.feature_store} directory")
 
 

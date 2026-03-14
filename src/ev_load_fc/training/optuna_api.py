@@ -2,10 +2,10 @@ import pandas as pd
 import math
 import numpy as np
 import mlflow
-import cupy
 from sklearn.metrics import root_mean_squared_error
 from sklearn.model_selection import TimeSeriesSplit, cross_val_score
 from prophet.diagnostics import cross_validation
+from prophet import Prophet
 from pandas.tseries.holiday import USFederalHolidayCalendar as calender
 from ev_load_fc.training.registry import build_model
 import logging
@@ -25,7 +25,7 @@ def prophet_df_format(ts:pd.Series) -> pd.DataFrame:
     # Copy original series and extract index and target names
     proph_df = ts.copy()
     index_name  =  proph_df.index.name
-    target_name = proph_df.columns[0]
+    target_name = proph_df.name
 
     proph_df = proph_df.reset_index()
     proph_df = proph_df.rename(columns={index_name:'ds', target_name:'y'})
@@ -33,7 +33,7 @@ def prophet_df_format(ts:pd.Series) -> pd.DataFrame:
     return proph_df[['ds','y']]
 
 
-def cv_score_prophet_model(model, y:pd.Series, n_splits:int) -> float:
+def cv_score_prophet_model(model:Prophet, y:pd.Series, n_splits:int) -> float:
     """
     Conducts cross-validation for a Prophet model and returns the mean Root Mean Squared Error across splits.
 
@@ -50,13 +50,13 @@ def cv_score_prophet_model(model, y:pd.Series, n_splits:int) -> float:
     """
 
     # Ensure y is in correct format for Prophet modelling
-    if 'ds' not in y.columns or 'y' not in y.columns:
+    if isinstance(y, pd.Series):
         y_proph = prophet_df_format(y)
     else:
         y_proph = y[['ds','y']].copy()
 
     # Fit model and cross validate
-    model.fit(y_proph)
+    model.fit(y_proph.dropna())
     window_length = math.floor((len(y_proph)-366)/n_splits)
     cv = cross_validation(model=model, initial='366 days', horizon=f'{window_length} days', period=f'{window_length} days', disable_tqdm=True)
 
@@ -120,9 +120,14 @@ def objective(
         params = {}
         # Populate params dict from search_space
         for param, range in search_space.items():
+            if param == 'xgboost_dart_mode':
+                pass
             range = sorted(search_space[param])
+            # Bools ranges
+            if isinstance(range[0], bool) and isinstance(range[-1], bool):
+                params[param] = trial.suggest_categorical(param, choices=range)
             # Integer ranges
-            if isinstance(range[0], int) and isinstance(range[-1], int):
+            elif isinstance(range[0], int) and isinstance(range[-1], int):
                 params[param] = trial.suggest_int(param, range[0], range[-1])
             # Float ranges
             elif isinstance(range[0], float) or isinstance(range[-1], float):
@@ -143,9 +148,6 @@ def objective(
         est = build_model(model_name=model_name, params=params, holidays_df=holidays_df)
         
         X = train.drop(columns=[target])
-        # Moving 
-        if model_name == "XGBoost" and params.get("device") == "cuda":
-            X = cupy.array(X)
         y = train[target]
 
         # Train and score model using cross validation
@@ -176,6 +178,7 @@ def objective(
         mlflow.log_metric("rmse", mean_score)
 
     return mean_score
+
 
 def champion_callback(study, frozen_trial):
     # Reference: https://mlflow.org/docs/latest/ml/traditional-ml/tutorials/hyperparameter-tuning/notebooks/hyperparameter-tuning-with-child-runs/

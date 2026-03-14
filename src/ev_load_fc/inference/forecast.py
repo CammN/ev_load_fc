@@ -34,7 +34,7 @@ def sarimax_one_step(
 
 
 def recursive_forecast(
-        fitted_model, 
+        fitted_model,
         pre_features:pd.DataFrame,
         X_test:pd.DataFrame, 
         horizon:int, 
@@ -51,9 +51,9 @@ def recursive_forecast(
     rw_mean_dict = {}
     for col in energy_feats:    
         if "energy" in tfd["lags"].keys():
-            lag_dict[col] = tfd["rolling_sums"]["energy"]    
+            lag_dict[col] = tfd["lags"]["energy"]    
         if "energy" in tfd["rolling_sums"].keys():
-            rw_sum_dict[col] = tfd["lags"]["energy"]    
+            rw_sum_dict[col] = tfd["rolling_sums"]["energy"]    
         if "energy" in tfd["rolling_means"].keys():
             rw_mean_dict[col] = tfd["rolling_means"]["energy"]
             
@@ -63,8 +63,12 @@ def recursive_forecast(
 
     # Create date range covering period from when our earliest lags exist to the end of our forecast horizon 
     start_time = forecast_start - pd.Timedelta(hours=max_lag+1)
-    total_hours = max_lag + horizon
+    total_hours = max_lag + horizon + 1 
     dates = pd.date_range(start_time, periods=total_hours, freq='h')
+
+    missing_dates = [d for d in dates if d not in pre_features.index]
+    if missing_dates:
+        raise ValueError(f"pre_features is missing {len(missing_dates)} required timestamps, earliest: {min(missing_dates)}")
     
     # df storing our pre-feature engineering data, updated each step in forecast with predicted value for the associated point in time
     rolling_data = pre_features.loc[dates].copy()
@@ -89,7 +93,11 @@ def recursive_forecast(
         rolling_data = rolling_window_features(rolling_data, rw_mean_dict, 'mean')
 
         # Update our rolling X_test df with recomputed features
-        X_rolling[energy_feats] = rolling_data[energy_feats].copy()
+        shared_energy_feats = [col for col in energy_feats if col in rolling_data.columns]
+        X_rolling[shared_energy_feats] = rolling_data.loc[X_rolling.index, shared_energy_feats].copy()
+
+        # Reindex to preserve original index
+        rolling_data = rolling_data.reindex(dates)
 
     forecast_series = pd.Series(forecast, index=pd.date_range(forecast_start, periods=horizon, freq='h'))
 

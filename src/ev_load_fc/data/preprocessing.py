@@ -419,5 +419,3 @@ def validate_time_series(df:pd.DataFrame, periods:int, name:str):
     logger.debug(f"{name} dataset is valid across the given date range")
 
 
-def scale_features(X):
-    return X

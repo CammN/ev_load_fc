@@ -4,6 +4,7 @@ import pandas as pd
 from ev_load_fc.config import CFG, resolve_path
 from ev_load_fc.utils.logging import setup_logging
 from ev_load_fc.pipelines.feature_pipeline import FeaturePipeline, FeaturePipelineConfig
+logger = logging.getLogger(__name__)
 logging_level = CFG["project"]["logging_level"]
 
 
@@ -12,9 +13,13 @@ def build_pipeline_params(fe, fs):
     processed = resolve_path(CFG["paths"]["processed_data"])
 
     return {
-        # Paths
+        # Paths and files
         "combined_path": processed / CFG["files"]["combined_filename"],
         "feature_store": resolve_path(CFG["paths"]["feature_store"]),
+        "X_set": CFG["files"]["X_set"],
+        "y_set": CFG["files"]["y_set"],
+        "train": CFG["files"]["train"],
+        "test": CFG["files"]["test"],
 
         # Miscellaneous
         "min_timestamp": pd.to_datetime(CFG["data"]["raw_filters"]["min_timestamp"]),
@@ -24,6 +29,7 @@ def build_pipeline_params(fe, fs):
 
         # Feature creation parameters
         "target": CFG["features"]["target"],
+        "detrend": CFG["features"]["detrend"],
         "holiday_list": list(CFG["features"]["feature_engineering"]["holidays"]),
         "time_feature_dict": CFG["features"]["feature_engineering"]["time_feature_dict"],
         "energy_col_substrs": CFG["features"]["feature_engineering"]["energy_col_substrs"],

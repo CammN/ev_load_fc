@@ -1,4 +1,4 @@
-
+﻿
 project:
   name: ev_load_fc
   seed: 42
@@ -36,6 +36,11 @@ files:
   temperature_proc_filename: "temperature_processed.csv"
   traffic_proc_filename: "traffic_processed.csv"
   combined_filename: "combined_processed.csv"
+  # Features
+  X_set: X_detrend
+  y_set: y_detrend
+  train: train_detrend
+  test: test_detrend
   
 
 data:
@@ -44,7 +49,7 @@ data:
   raw_filters:
     # Define the time period our data will be contained in
     min_timestamp: "2017-08-01"       
-    max_timestamp: "2020-03-01" 
+    max_timestamp: "2020-02-01" 
     # Cities to filter the raw LSTW weather data by        
     weather_cities:
       - "Palo Alto"
@@ -115,6 +120,7 @@ features:
 
   # Target column
   target: 'energy'
+  detrend: True
 
   # Parameters for the creation of exogenous features
   feature_engineering:
@@ -152,20 +158,20 @@ features:
     fe_method_2: "rfe" # Method to select K best features from X_train - 'f', 'mi', 'imp', 'rfe', 'rfecv'
     correlation_threshold: 1.0
   
+  
 training:
 
   feature_version: "f_30_rfe_20" # Select version of data based on feature selection method
                                  # Use format "{fe_method_1}_{k_1}_{fe_method_2}_{k_2}"
 
   mlflow:
-    tracking_uri: "http://127.0.0.1:5000/"
-    experiment_name: "Tree Based Models"
+    experiment_name: "Ensemble Models Detrend"
 
   optuna:
     verbosity: 30 # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL
-    models_to_run: ["XGBoost"] # List of models to train using Optuna studies
+    models_to_run: ["CatBoost"] # List of models to train using Optuna studies
                                      # Choose from: "Random Forest" "AdaBoost" "XGBoost" "LightGBM" "CatBoost" "Prophet"
-    trials: 5 # How many trials each Optuna study should have 
+    trials: 100 # How many trials each Optuna study should have 
     metric: "rsme" # Evaluation metric used in Optuna trials, choose from: 
     splits: 4 # Number of splits for time series cross-validation
 
@@ -181,14 +187,14 @@ training:
         n_jobs : [-1]
 
       AdaBoost:
-        n_estimators: [50,500]
+        n_estimators: [10,200]
         learning_rate : [0.01,0.1]
         loss : ['linear','square','exponential']
 
       XGBoost:
-        booster: ['gbtree']
-        device: ['cuda']
-        # Common params
+        booster: ['dart'] # choose from 'gbtree', 'gblinear', 'dart'
+        device: ['cuda'] # gpu acceleration, choose from: 'cuda' or 'cpu'
+        # Core params
         n_estimators: [50,250]
         learning_rate: [0.01,0.2]
         max_depth: [3,20]
@@ -199,13 +205,71 @@ training:
         reg_alpha: [0,10]
         min_child_weight: [1,10]
         max_leaves: [10,80]
-        tree_method: ['approx','hist']
+        tree_method: ['approx','hist'] # choose from 'auto', 'exact', 'approx', 'hist'
         # DART specific params
-        sample_type: ['uniform','weighted']
-        normalize_type: ['tree','forest']
+        sample_type: ['uniform','weighted'] # choose from 'uniform', 'weighted'
+        normalize_type: ['tree','forest'] # choose from 'tree', 'forest'
         rate_drop: [0.0,0.3]
         skip_drop: [0.0,0.3]
-        max_drop: [0,10]
+
+      LightGBM:
+        boosting_type: ['dart'] # choose from 'gbdt', 'dart', 'rf'
+        # Core params
+        n_estimators: [50,250]
+        learning_rate: [0.01,0.2]
+        num_leaves: [16,256]
+        max_depth: [3,25]
+        min_child_samples: [5,100]
+        subsample: [0.6,1.0]
+        subsample_freq: [0,7]
+        colsample_bytree: [0.6,1.0]
+        reg_alpha: [0.0,10.0]
+        reg_lambda: [0.0,10.0]
+        min_split_gain: [0.0,1.0]
+        verbose: [-1]
+        # DART specific params
+        drop_rate: [0.0,0.3]
+        skip_drop: [0.0,0.5]
+        uniform_drop: [True,False]
+        xgboost_dart_mode: [True]
+
+      CatBoost:
+        # Core params
+        iterations: [100, 500]
+        learning_rate: [0.01, 0.3]
+        depth: [4, 10]
+        l2_leaf_reg: [1.0, 10.0]
+        random_strength: [0.0, 10.0]
+        bagging_temperature: [0.0, 1.0] # used when bootstrap_type = Bayesian
+        subsample: [0.6, 1.0] # used when bootstrap_type = Bernoulli or MVS
+        border_count: [32, 255]
+        verbose: [0]
+
+        boosting_type: ['Plain', 'Ordered']             # choose from 'Plain', 'Ordered'
+        bootstrap_type: ['Bayesian', 'Bernoulli', 'MVS', 'No'] # choose from 'Bayesian', 'Bernoulli', 'MVS', 'No'
+        grow_policy: ['SymmetricTree', 'Depthwise', 'Lossguide'] # choose from 'SymmetricTree', 'Depthwise', 'Lossguide'
+        min_data_in_leaf: [1, 50]
+
+        max_leaves: [16, 64]                 # only used when grow_policy = Lossguide
+        # Score function (affects split selection)
+        score_function: ['Cosine', 'L2']           # choose from 'Cosine', 'L2', 'NewtonCosine', 'NewtonL2'
+
+        leaf_estimation_method: ['Newton', 'Gradient']   # choose from 'Newton', 'Gradient', 'Exact'
+        leaf_estimation_iterations: [1, 10]
+
+        # Ordered boosting specific (boosting_type = Ordered)
+        fold_len_multiplier: [1.5, 2.5]
+        fold_permutation_block: [1, 256]
 
 
-    
+      Prophet:
+        growth : [linear] 
+        n_changepoints : [10,50] 
+        changepoint_range : [0.6,0.95]
+        seasonality_mode : [additive, multiplicative]
+        seasonality_prior_scale : [5,50] 
+        weekly_seasonality : [0,20]
+        yearly_seasonality : [0,20]
+        holidays_prior_scale : [5,50]
+        changepoint_prior_scale : [0.01,0.5]
+        interval_width : [0.9]

@@ -1,14 +1,60 @@
 import mlflow
 import pandas as pd
+import shutil
+from datetime import datetime
 from pathlib import Path
 from optuna.study import Study
 from optuna.visualization import plot_param_importances, plot_optimization_history
-from mlflow.data.pandas_dataset import PandasDataset
 from mlflow.data.sources import LocalArtifactDatasetSource
 from pandas.tseries.holiday import USFederalHolidayCalendar as calender
 from ev_load_fc.training.registry import build_model 
 from ev_load_fc.training.evaluation import EvaluationPlots
+from ev_load_fc.config import PROJECT_ROOT, CFG
+from types import ModuleType
 
+# All MLflow data lives in one explicit, versioned location
+MLFLOW_DIR = Path(f"{PROJECT_ROOT}/mlflow_store")
+MLFLOW_DB  = MLFLOW_DIR / "mlflow.db"
+TRACKING_URI = f"sqlite:///{MLFLOW_DB.as_posix()}"
+
+
+def init_mlflow():
+    """
+    Safely initialise MLflow tracking. 
+    Will never create a new DB if one already exists at the configured path.
+    """
+    MLFLOW_DIR.mkdir(parents=True, exist_ok=True)
+
+    mlflow.set_tracking_uri(TRACKING_URI)
+
+    # Sanity check - print URI so you can always see where you're pointed
+    print(f"MLflow tracking URI : {mlflow.get_tracking_uri()}")
+    print(f"DB exists           : {MLFLOW_DB.exists()}")
+
+    return mlflow.get_tracking_uri()
+
+
+def backup_mlflow_db():
+    """Backs up all MLflow runs to be safe when calling long training run."""
+
+    if not MLFLOW_DB.exists():
+        print("No MLflow DB found yet — skipping backup (no runs logged yet).")
+        return
+
+    backup_dir = MLFLOW_DIR / "backups"
+    backup_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = backup_dir / f"mlflow_{timestamp}.db"
+    shutil.copy2(MLFLOW_DB, dest)
+    print(f"Backed up to {dest}")
+
+    # Keep only last 10 backups
+    backups = sorted(backup_dir.glob("mlflow_*.db"))
+    for old in backups[:-10]:
+        old.unlink()
+        print(f"Removed old backup: {old.name}")
+        
 
 def get_or_create_experiment(experiment_name:str, tags:dict={}) -> str :
     # Reference: https://mlflow.org/docs/latest/ml/traditional-ml/tutorials/hyperparameter-tuning/notebooks/hyperparameter-tuning-with-child-runs/
@@ -31,6 +77,20 @@ def get_or_create_experiment(experiment_name:str, tags:dict={}) -> str :
     else:
         return mlflow.create_experiment(experiment_name, tags=tags)
 
+
+def _log_model_flavour(model_name: str) -> ModuleType:
+    """Logs a model to an active MLflow run using the correct flavour."""
+    flavour_map = {
+        "XGBoost"       : mlflow.xgboost,
+        "LightGBM"      : mlflow.lightgbm,
+        "CatBoost"      : mlflow.catboost,
+        "Prophet"       : mlflow.prophet,
+        "Random Forest" : mlflow.sklearn,
+        "AdaBoost"      : mlflow.sklearn,
+    }
+    flavour = flavour_map.get(model_name, mlflow.sklearn)
+    
+    return flavour    
 
 
 def parent_logging(
@@ -68,18 +128,20 @@ def parent_logging(
     mlflow.log_metric("best_rmse", study.best_value)
 
     # Create MLFlow datasets
+    train_name = CFG['files']['train']
+    test_name  = CFG['files']['test']
     train_source = LocalArtifactDatasetSource(str(train_path))
     test_source = LocalArtifactDatasetSource(str(test_path))
     train_log = mlflow.data.from_pandas(
         train,
         source=train_source,
-        name=f"ev_fc_train-{feature_version}",
+        name=f"ev_fc_{train_name}-{feature_version}",
         targets=target,
     )
     test_log = mlflow.data.from_pandas(
         test,
         source=test_source,
-        name=f"ev_fc_test-{feature_version}",
+        name=f"ev_fc_{test_name}-{feature_version}",
         targets=target,
     )
 
@@ -112,6 +174,9 @@ def parent_logging(
     )
     # Fit
     model = model.fit(X_train, y_train)
+    # Log best fitted model
+    model_flavour = _log_model_flavour(model_name)
+    model_flavour.log_model(model, artifact_path='model')
 
     ### Create and log plots
     plotter = EvaluationPlots(
@@ -144,3 +209,62 @@ def parent_logging(
     mlflow.log_figure(fig_optimization_history,artifact_file=opt_hist_path)
 
     
+def get_best_model(experiment_name:str, metric:str = "rmse", ascending:bool = False, filter_string:str|None=None):
+    """
+    Finds and returns the best model from an MLflow experiment based on a given metric.
+
+    Args:
+        experiment_name (str): Name of the MLflow experiment to search.
+        metric (str): The metric to rank runs by. Defaults to 'val_rmse'.
+        ascending (bool): If True, lower metric is better (e.g. RMSE). If False, higher is better (e.g. R2). Defaults to True.
+
+    Returns:
+        tuple: (model, run) where model is the loaded sklearn-compatible model and run is the best MLflow RunInfo object.
+
+    Raises:
+        ValueError: If the experiment is not found or no successful runs exist.
+    """
+
+    tracking_uri = init_mlflow()
+    client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
+
+    experiment = mlflow.get_experiment_by_name(experiment_name)
+    if experiment is None:
+        raise ValueError(f"Experiment '{experiment_name}' not found.")
+    
+    full_string = 'status = "FINISHED"'
+    if filter_string:
+        full_string += ' AND ' + filter_string
+
+    runs = mlflow.search_runs(
+        experiment_ids=[experiment.experiment_id],
+        filter_string=full_string,
+        order_by=[f"metrics.{metric} {'ASC' if ascending else 'DESC'}"],
+    )
+
+    if runs.empty:
+        raise ValueError(f"No finished runs found in experiment '{experiment_name}'.")
+    if f"metrics.{metric}" not in runs.columns or runs[f"metrics.{metric}"].isna().all():
+        raise ValueError(f"Metric '{metric}' not found in any runs.")
+
+    best_run = runs.iloc[0]
+    best_run_id = best_run["run_id"]
+
+    # Walk up to parent run if this is a child run
+    parent_run_id = best_run.get("tags.mlflow.parentRunId")
+    parent_run = client.get_run(parent_run_id)
+    parent_run_name = parent_run.data.tags.get("mlflow.runName")
+    artifact_run_id = parent_run_id if parent_run_id else best_run_id
+
+    flavour = _log_model_flavour(next(
+        (name for name in ["XGBoost", "LightGBM", "CatBoost", "Prophet", "Random Forest", "AdaBoost"]
+         if name.lower() in parent_run_name.lower()),
+        "sklearn"
+    ))
+    model = flavour.load_model(f"runs:/{artifact_run_id}/model")
+
+    print(f"Best run ID : {best_run_id}")
+    print(f"Best {metric}  : {best_run[f'metrics.{metric}']:.4f}")
+    print(f"Model        : {best_run.get('tags.mlflow.runName', 'N/A')}")
+
+    return model, best_run

@@ -17,7 +17,7 @@ def _load_yaml(path:Path) -> Dict[str, Any]:
     """
     if not path.exists():
         return {}
-    with path.open("r") as f:
+    with path.open("r", encoding='utf-8-sig') as f:
         return yaml.safe_load(f) or {}
 
 

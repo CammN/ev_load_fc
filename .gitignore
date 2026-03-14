@@ -4,6 +4,10 @@ models/
 logs/
 mlruns/
 images/plots/
+# MLflow - never commit the DB or artifacts
+mlflow_store/artifacts/
+# DO commit the DB path config but not the DB itself
+mlflow_store/*.db
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -212,3 +216,4 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+notebooks/test.ipynb

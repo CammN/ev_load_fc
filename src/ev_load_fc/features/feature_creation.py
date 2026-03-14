@@ -1,11 +1,22 @@
 import pandas as pd
 import numpy as np
+from scipy.stats import linregress
 from datetime import datetime
 from pandas.tseries.holiday import USFederalHolidayCalendar as calender
 from typing import Literal
 import logging
 logger = logging.getLogger(__name__)
 
+
+def detrend(y:pd.Series) -> tuple[float,float]:
+    
+    t_train = np.arange(len(y))
+    slope, intercept, _, _, _ = linregress(t_train, y)
+
+    # # Remove trend from target
+    # y_detrended = y - (slope * t_train + intercept)
+
+    return slope, intercept
 
 
 def aggregate_features(df:pd.DataFrame, out_name:str, substr1:str, substr2:str='') -> pd.DataFrame:
