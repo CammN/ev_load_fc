@@ -97,7 +97,7 @@ class TrainingPipeline:
             parent_run_id = parent_run.info.run_id
 
             # Initialize the Optuna study
-            study = optuna.create_study(direction="maximize")
+            study = optuna.create_study(direction="minimize")
 
             try:
 
@@ -111,6 +111,7 @@ class TrainingPipeline:
                         model_name=model_name,
                         search_space=self.cfg.search_spaces[model_name],
                         n_splits=self.cfg.splits,
+                        metric=self.cfg.metric,
                         experiment_id=experiment_id,
                         parent_run_id=parent_run_id,
                         seed=None,
@@ -132,6 +133,7 @@ class TrainingPipeline:
                     config_dir=self.cfg.configs,
                     images_dir=self.cfg.images,
                     run_num=next_run_number,
+                    metric=self.cfg.metric,
                 )
             
 

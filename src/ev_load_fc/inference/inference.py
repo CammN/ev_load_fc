@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from sklearn.metrics import root_mean_squared_error
+from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 from statsmodels.tsa.statespace.sarimax import SARIMAXResults
 from ev_load_fc.config import CFG
 from ev_load_fc.features.feature_creation import (
@@ -8,12 +8,15 @@ from ev_load_fc.features.feature_creation import (
     rolling_window_features,
     flatten_nested_dict,
 )
+from typing import Union
+
 
 def sarimax_one_step(
         fitted_model:SARIMAXResults, 
         y_test:pd.Series, 
-        start, 
-        end
+        start:pd.Timestamp|int, 
+        end:pd.Timestamp|int,
+        score_func:Union[root_mean_squared_error, mean_absolute_error],
     ) -> np.float64:
 
     if isinstance(start, pd.Timestamp) and isinstance(end, pd.Timestamp):
@@ -26,8 +29,8 @@ def sarimax_one_step(
     scores = []
     for i, step in enumerate(step_range):
         forecast = fitted_model.forecast(steps=1)
-        rsme = root_mean_squared_error(y_test[i],forecast)
-        scores.append(rsme)
+        score = score_func(y_test[i],forecast)
+        scores.append(score)
         fitted_model = fitted_model.append([y_test[i]], refit=False)
 
     return np.mean(scores)

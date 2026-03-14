@@ -2,8 +2,8 @@ import pandas as pd
 import math
 import numpy as np
 import mlflow
-from sklearn.metrics import root_mean_squared_error
-from sklearn.model_selection import TimeSeriesSplit, cross_val_score
+from sklearn.metrics import root_mean_squared_error, mean_absolute_error
+from sklearn.model_selection import TimeSeriesSplit, cross_validate
 from prophet.diagnostics import cross_validation
 from prophet import Prophet
 from pandas.tseries.holiday import USFederalHolidayCalendar as calender
@@ -33,9 +33,9 @@ def prophet_df_format(ts:pd.Series) -> pd.DataFrame:
     return proph_df[['ds','y']]
 
 
-def cv_score_prophet_model(model:Prophet, y:pd.Series, n_splits:int) -> float:
+def cv_score_prophet_model(model:Prophet, y:pd.Series, n_splits:int) -> dict:
     """
-    Conducts cross-validation for a Prophet model and returns the mean Root Mean Squared Error across splits.
+    Conducts cross-validation for a Prophet model and returns the mean RMSE and MAE across splits.
 
     Args:
         model (Prophet): A Prophet model instance.
@@ -46,7 +46,7 @@ def cv_score_prophet_model(model:Prophet, y:pd.Series, n_splits:int) -> float:
         ValueError: If y is not in correct format and target is not provided.
 
     Returns:
-        float: Mean Root Mean Squared Error across CV splits.
+        dict: {"rmse": float, "mae": float} mean scores across CV splits.
     """
 
     # Ensure y is in correct format for Prophet modelling
@@ -60,28 +60,30 @@ def cv_score_prophet_model(model:Prophet, y:pd.Series, n_splits:int) -> float:
     window_length = math.floor((len(y_proph)-366)/n_splits)
     cv = cross_validation(model=model, initial='366 days', horizon=f'{window_length} days', period=f'{window_length} days', disable_tqdm=True)
 
-    # Calculate Root Mean Squared Error for each CV split
-    split_rsmes = {}
+    # Calculate RMSE and MAE for each CV split
+    split_rmses = {}
+    split_maes = {}
     for cutoff in cv['cutoff'].unique():
         split = cv[cv['cutoff']==cutoff]
         min_date, max_date = split['ds'].min(), split['ds'].max()
         actual = y_proph[y_proph['ds'].between(min_date, max_date, inclusive='both')]
-        rsme = root_mean_squared_error(actual['y'], split['yhat'])
-        split_rsmes[cutoff] = rsme
+        split_rmses[cutoff] = root_mean_squared_error(actual['y'], split['yhat'])
+        split_maes[cutoff] = mean_absolute_error(actual['y'], split['yhat'])
 
-    # Take mean RSME
-    mean_rsme = np.mean(list(split_rsmes.values()))
-
-    return mean_rsme
+    return {
+        "rmse": np.mean(list(split_rmses.values())),
+        "mae": np.mean(list(split_maes.values())),
+    }
 
 
 def objective(
-        trial, 
-        train:pd.DataFrame, 
-        target:str, 
-        model_name:str, 
-        search_space:dict, 
-        n_splits:int, 
+        trial,
+        train:pd.DataFrame,
+        target:str,
+        model_name:str,
+        search_space:dict,
+        n_splits:int,
+        metric:str="rmse",
         experiment_id:str|None=None,
         parent_run_id:str|None=None,
         seed:int=42,
@@ -151,33 +153,39 @@ def objective(
         y = train[target]
 
         # Train and score model using cross validation
-        if model_name == 'Prophet': 
-            mean_score = cv_score_prophet_model(
-                model=est, 
-                y=y, 
+        if model_name == 'Prophet':
+            scores = cv_score_prophet_model(
+                model=est,
+                y=y,
                 n_splits=n_splits
             )
+            mean_rmse = scores["rmse"]
+            mean_mae = scores["mae"]
         else:
-            
             tscv = TimeSeriesSplit(n_splits=n_splits)
             if isinstance(y, pd.Series):
                 y = np.ravel(y)
 
-            # Get scores across Time Series Splits
-            scores = cross_val_score(
+            # Get both RMSE and MAE across Time Series Splits in one pass
+            scores = cross_validate(
                 estimator=est,
-                X=X, 
+                X=X,
                 y=y,
                 cv=tscv,
-                scoring='neg_root_mean_squared_error'
+                scoring={
+                    "neg_rmse": "neg_root_mean_squared_error",
+                    "neg_mae": "neg_mean_absolute_error",
+                },
             )
-            mean_score = scores.mean()
+            mean_rmse = -scores["test_neg_rmse"].mean()
+            mean_mae = -scores["test_neg_mae"].mean()
 
         # Log child run to MLflow
         mlflow.log_params(params)
-        mlflow.log_metric("rmse", mean_score)
+        mlflow.log_metric("rmse", mean_rmse)
+        mlflow.log_metric("mae", mean_mae)
 
-    return mean_score
+    return mean_rmse if metric == "rmse" else mean_mae
 
 
 def champion_callback(study, frozen_trial):

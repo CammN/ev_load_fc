@@ -172,7 +172,7 @@ training:
     models_to_run: ["CatBoost"] # List of models to train using Optuna studies
                                      # Choose from: "Random Forest" "AdaBoost" "XGBoost" "LightGBM" "CatBoost" "Prophet"
     trials: 100 # How many trials each Optuna study should have 
-    metric: "rsme" # Evaluation metric used in Optuna trials, choose from: 
+    metric: "mae" # Evaluation metric used in Optuna trials, choose from: "rmse", "mae"
     splits: 4 # Number of splits for time series cross-validation
 
     search_spaces:

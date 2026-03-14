@@ -9,6 +9,7 @@ dependencies = [
     "cupy-cuda12x>=13.6.0",
     "duckdb>=1.4.1",
     "ipykernel>=7.2.0",
+    "ipython>=9.10.0",
     "lightgbm>=4.6.0",
     "matplotlib>=3.10.7",
     "meteostat>=1.7.6",

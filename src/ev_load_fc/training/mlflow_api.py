@@ -105,6 +105,7 @@ def parent_logging(
     config_dir:Path,
     images_dir:Path,
     run_num:int,
+    metric:str="rmse",
 ) -> None:
     """
     Logs the best model and evaluation plots to MLflow as a parent run.
@@ -125,7 +126,7 @@ def parent_logging(
 
     # Log best model's parameters and score
     mlflow.log_params(study.best_params)
-    mlflow.log_metric("best_rmse", study.best_value)
+    mlflow.log_metric(f"best_{metric}", study.best_value)
 
     # Create MLFlow datasets
     train_name = CFG['files']['train']
