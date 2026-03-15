@@ -40,6 +40,8 @@ class FeaturePipelineConfig:
     temperature_col_substrs: list
     traffic_col_substrs: list
     # Feature selection parameters
+    weather: bool
+    traffic: bool
     scale_method: str
     k_1: int
     fe_method_1: str
@@ -57,7 +59,8 @@ class FeaturePipeline:
 
     def __init__(self, config: FeaturePipelineConfig):
         self.cfg = config
-        self.version = f"{self.cfg.fe_method_1}_{self.cfg.k_1}_{self.cfg.fe_method_2}_{self.cfg.k_2}"
+        data_tag = f'E{"W" if self.cfg.weather else ""}{"T" if self.cfg.traffic else ""}'
+        self.version = f"{data_tag}_{self.cfg.fe_method_1}_{self.cfg.k_1}_{self.cfg.fe_method_2}_{self.cfg.k_2}"
             
 
     def _feature_engineering(self, save=True, results=False, raw_combined=None):
@@ -230,6 +233,19 @@ class FeaturePipeline:
         y_train = y[y.index <  self.cfg.split_date].copy()
         X_test  = X[X.index >= self.cfg.split_date].copy()
         y_test  = y[y.index >= self.cfg.split_date].copy()
+
+        # Drop weather and traffic features if not required
+        if not self.cfg.weather:
+            weather_features = [col for col in X_train.columns 
+                                if any([s in col for s in self.cfg.weather_col_substrs])
+                                or any([s in col for s in self.cfg.temperature_col_substrs])]
+            X_train = X_train.drop(columns=weather_features)
+            X_test  = X_test.drop(columns=weather_features)
+        if not self.cfg.traffic:
+            traffic_features = [col for col in X_train.columns 
+                                if any([s in col for s in self.cfg.traffic_col_substrs])]
+            X_train = X_train.drop(columns=traffic_features)
+            X_test  = X_test.drop(columns=traffic_features)
 
         # Select K best features using given method (first round)
         X_train_cut = k_by_scores(

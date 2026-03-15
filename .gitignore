@@ -4,10 +4,7 @@ models/
 logs/
 mlruns/
 images/plots/
-# MLflow - never commit the DB or artifacts
-mlflow_store/artifacts/
-# DO commit the DB path config but not the DB itself
-mlflow_store/*.db
+mlflow_store/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

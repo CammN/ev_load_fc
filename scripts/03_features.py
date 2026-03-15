@@ -38,6 +38,8 @@ def build_pipeline_params(fe, fs):
         "traffic_col_substrs": CFG["features"]["feature_engineering"]["traffic_col_substrs"],
         
         # Feature selection parameters
+        "weather": CFG["features"]["feature_selection"]["weather"],
+        "traffic": CFG["features"]["feature_selection"]["traffic"],
         "scale_method": CFG["features"]["feature_selection"]["scale_method"],
         "k_1": CFG["features"]["feature_selection"]["k_1"],
         "fe_method_1": CFG["features"]["feature_selection"]["fe_method_1"],
