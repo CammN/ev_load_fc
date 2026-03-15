@@ -2,14 +2,14 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 from statsmodels.tsa.statespace.sarimax import SARIMAXResults
+from prophet import Prophet
 from ev_load_fc.config import CFG
 from ev_load_fc.features.feature_creation import (
     lag_features, 
     rolling_window_features,
     flatten_nested_dict,
 )
-from typing import Union
-
+from typing import Union, List
 
 def sarimax_one_step(
         fitted_model:SARIMAXResults, 
@@ -36,23 +36,67 @@ def sarimax_one_step(
     return np.mean(scores)
 
 
+def get_feature_set(fitted_model) -> List[str]:
+    """Extracts input features used to fit model, logic depends on model API
+        - XGBRegressor
+        - RandomForestRegressor
+        - CatBoostRegression
+        - LGBMRegressor
+        - Prophet
+        - AdaBoostRegressor
+
+    Args:
+        fitted_model (_type_): Fitted model object to extract feature set from
+    """
+    if hasattr(fitted_model, 'feature_names_in_'):
+        feature_set = list(fitted_model.feature_names_in_)
+    elif hasattr(fitted_model, 'feature_names_'):
+        feature_set = list(fitted_model.feature_names_)    
+    elif isinstance(fitted_model, Prophet):
+        feature_set = list(fitted_model.extra_regressors.keys())
+    else:
+        raise ValueError("Model type not recognized, unable to extract feature set.")
+    
+    return feature_set
+
 def recursive_forecast(
         fitted_model,
-        pre_features:pd.DataFrame,
-        X_test:pd.DataFrame, 
+        raw_hourly:pd.DataFrame,
+        X:pd.DataFrame, 
         horizon:int, 
         forecast_start:pd.Timestamp, 
     ) -> pd.Series:
+    """Performs a recursive multi-step forecast using a fitted model, by iteratively predicting one step ahead and then updating the input features with the new prediction before predicting the next step.
 
-    column_set = X_test.columns
-    energy_feats = [col for col in column_set if 'energy' in col]
+    Args:
+        fitted_model (_type_): A fitted model object with a predict method and accessible feature set
+        raw_hourly (pd.DataFrame): Contains historical pre-feature target and exogenous data - target features will be computed from this on a rolling basis at each step in forecast
+        X (pd.DataFrame): Contains precomputed features of target and exogenous data i.e. lags, rolling window, time features
+            - Only features created from non-target data (i.e. weather, traffic) will be used, target based features (e.g. energy_lag_24) will be computed from raw_hourly on a rolling basis
+        horizon (int): Number of steps to forecast, in same frequency as raw_hourly and X (e.g. if hourly data, horizon of 24 means forecast 24 hours ahead)
+        forecast_start (pd.Timestamp): Timestamp of first point in forecast horizon, must be after end of historical data in raw_hourly
+
+    Raises:
+        ValueError: If :
+            - Forecast_start is before end of raw_hourly data
+            - Required timestamps are missing from raw_hourly
+            - Model type is not recognized in get_feature_set function
+
+    Returns:
+        pd.Series: Forecasted values for target variable over the forecast horizon, indexed by timestamp
+    """
+
+    feature_set  = get_feature_set(fitted_model)
+    feature_set  = [feat for feat in feature_set if feat in X.columns and feat != 'energy'] # restrict to features we have precomputed in X, and exclude energy column itself as this is what we will be updating in our rolling data
+    energy_feature_set = [feat for feat in feature_set if "energy" in feat]
+    raw_energy_cols = [feat for feat in raw_hourly.columns if "energy" in feat]
 
     ### Dictionary containing lags to use when creating features from the energy column
     tfd = CFG["features"]["feature_engineering"]["time_feature_dict"]
     lag_dict = {}
     rw_sum_dict = {}
     rw_mean_dict = {}
-    for col in energy_feats:    
+    for col in raw_energy_cols:    
         if "energy" in tfd["lags"].keys():
             lag_dict[col] = tfd["lags"]["energy"]    
         if "energy" in tfd["rolling_sums"].keys():
@@ -64,26 +108,29 @@ def recursive_forecast(
     all_lags = flatten_nested_dict(tfd)
     max_lag  = max(all_lags)
 
-    # Create date range covering period from when our earliest lags exist to the end of our forecast horizon 
-    start_time = forecast_start - pd.Timedelta(hours=max_lag+1)
+    # Create date range covering period from when our earliest lags exist to the end of our forecast horizon - used to filter X_raw
+    lag_start = forecast_start - pd.Timedelta(hours=max_lag+1)
     total_hours = max_lag + horizon + 1 
-    dates = pd.date_range(start_time, periods=total_hours, freq='h')
+    dates = pd.date_range(lag_start, periods=total_hours, freq='h')
 
-    missing_dates = [d for d in dates if d not in pre_features.index]
+    missing_dates = [d for d in dates if d not in raw_hourly.index]
     if missing_dates:
-        raise ValueError(f"pre_features is missing {len(missing_dates)} required timestamps, earliest: {min(missing_dates)}")
+        raise ValueError(f"raw_hourly is missing {len(missing_dates)} required timestamps, earliest: {min(missing_dates)}")
     
     # df storing our pre-feature engineering data, updated each step in forecast with predicted value for the associated point in time
-    rolling_data = pre_features.loc[dates].copy()
+    rolling_data = raw_hourly.loc[dates].copy()
+    rolling_data.loc[rolling_data.index >= forecast_start, 'energy'] = np.nan
     # df to store updated energy features and pre-existing exogenous features
-    X_rolling = X_test.loc[X_test.index >= forecast_start].copy()
+    X_rolling = X[feature_set].loc[dates].copy()
 
     forecast = []
     current_time = forecast_start
     for step in range(horizon):
 
         # 1 step prediction
-        step_y = fitted_model.predict(X_rolling.iloc[[step]])[0]
+        X_step = X_rolling.iloc[[step]]
+        X_step = X_step.reindex(columns=feature_set, fill_value=0)
+        step_y = fitted_model.predict(X_step)[0]
         forecast.append(step_y)
 
         # Overwrite rolling data with prediction
@@ -96,12 +143,44 @@ def recursive_forecast(
         rolling_data = rolling_window_features(rolling_data, rw_mean_dict, 'mean')
 
         # Update our rolling X_test df with recomputed features
-        shared_energy_feats = [col for col in energy_feats if col in rolling_data.columns]
+        shared_energy_feats = [col for col in energy_feature_set if col in X_rolling.columns]
         X_rolling[shared_energy_feats] = rolling_data.loc[X_rolling.index, shared_energy_feats].copy()
 
         # Reindex to preserve original index
         rolling_data = rolling_data.reindex(dates)
 
-    forecast_series = pd.Series(forecast, index=pd.date_range(forecast_start, periods=horizon, freq='h'))
+    fc_series = pd.Series(forecast, index=pd.date_range(forecast_start, periods=horizon, freq='h'))
 
-    return forecast_series
+    # Add back trend if model was trained on detrended data
+    if CFG["features"]["detrend"]:
+        slope = CFG["inference"]["slope"]
+        intercept = CFG["inference"]["intercept"]
+        t_future = np.arange(len(raw_hourly), len(raw_hourly) + horizon)
+        trend_future = slope * t_future + intercept
+        fc_series += trend_future
+
+    fc_df = pd.DataFrame({'timestamp': fc_series.index, 'energy_forecast': fc_series.values})
+    fc_df['energy_actual'] = raw_hourly.loc[fc_df['timestamp'], 'energy'].values
+
+    return fc_df
+
+
+from ev_load_fc.training.mlflow_api import get_best_model
+
+tree_exp = 'Ensemble Models Detrend'
+# filter_string = 'tags.model_family = "XGBoost"'
+best_model, best_run = get_best_model(tree_exp, 'rmse', filter_string=None)
+
+raw_hourly = pd.read_csv(r'C:\Users\camer\projects\ev_load_fc\datasets\03_processed\combined_processed.csv', parse_dates=True, index_col='timestamp')
+X  = pd.read_csv(r'C:\Users\camer\projects\ev_load_fc\datasets\04_features\X_detrend.csv', parse_dates=True, index_col='timestamp')
+
+fc_df = recursive_forecast(
+    fitted_model=best_model,
+    raw_hourly=raw_hourly,
+    X=X, 
+    horizon=30*24, 
+    forecast_start=pd.Timestamp(year=2019, month=9, day=1), 
+)
+
+print(fc_df)
+fc_df.to_csv(r'C:\Users\camer\projects\ev_load_fc\recursive_forecast.csv', index=False)
