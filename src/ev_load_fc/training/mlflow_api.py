@@ -14,7 +14,7 @@ from types import ModuleType
 
 # All MLflow data lives in one explicit, versioned location
 MLFLOW_DIR = Path(f"{PROJECT_ROOT}/mlflow_store")
-MLFLOW_DB  = MLFLOW_DIR / "mlflow.db"
+MLFLOW_DB  = PROJECT_ROOT / "mlflow.db"
 TRACKING_URI = f"sqlite:///{MLFLOW_DB.as_posix()}"
 
 
@@ -23,7 +23,7 @@ def init_mlflow():
     Safely initialise MLflow tracking. 
     Will never create a new DB if one already exists at the configured path.
     """
-    MLFLOW_DIR.mkdir(parents=True, exist_ok=True)
+    PROJECT_ROOT.mkdir(parents=True, exist_ok=True)
 
     mlflow.set_tracking_uri(TRACKING_URI)
 

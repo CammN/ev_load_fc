@@ -87,6 +87,7 @@ def objective(
         n_splits:int,
         metric:str="rmse",
         experiment_id:str|None=None,
+        parent_run_name:str|None=None,
         parent_run_id:str|None=None,
         seed:int=42,
     )->float:
@@ -108,6 +109,7 @@ def objective(
     with mlflow.start_run(
         nested=True, 
         experiment_id=experiment_id, 
+        run_name=f"{parent_run_name} - trial {trial.number}",
         parent_run_id=parent_run_id,
         description=f"Child run {trial.number} for {parent_run_id}",
         ) as child_run:

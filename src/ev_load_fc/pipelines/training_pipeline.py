@@ -113,6 +113,7 @@ class TrainingPipeline:
                         n_splits=self.cfg.splits,
                         metric=self.cfg.metric,
                         experiment_id=experiment_id,
+                        parent_run_name=run_name,
                         parent_run_id=parent_run_id,
                         seed=None,
                     ),

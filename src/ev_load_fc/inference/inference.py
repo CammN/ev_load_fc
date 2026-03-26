@@ -159,28 +159,8 @@ def recursive_forecast(
         trend_future = slope * t_future + intercept
         fc_series += trend_future
 
-    fc_df = pd.DataFrame({'timestamp': fc_series.index, 'energy_forecast': fc_series.values})
-    fc_df['energy_actual'] = raw_hourly.loc[fc_df['timestamp'], 'energy'].values
+    fc_df = pd.DataFrame({'timestamp': fc_series.index, 'yhat': fc_series.values})
+    fc_df['y'] = raw_hourly.loc[fc_df['timestamp'], 'energy'].values
 
     return fc_df
 
-
-from ev_load_fc.training.mlflow_api import get_best_model
-
-tree_exp = 'Ensemble Models Detrend'
-# filter_string = 'tags.model_family = "XGBoost"'
-best_model, best_run = get_best_model(tree_exp, 'rmse', filter_string=None)
-
-raw_hourly = pd.read_csv(r'C:\Users\camer\projects\ev_load_fc\datasets\03_processed\combined_processed.csv', parse_dates=True, index_col='timestamp')
-X  = pd.read_csv(r'C:\Users\camer\projects\ev_load_fc\datasets\04_features\X_detrend.csv', parse_dates=True, index_col='timestamp')
-
-fc_df = recursive_forecast(
-    fitted_model=best_model,
-    raw_hourly=raw_hourly,
-    X=X, 
-    horizon=30*24, 
-    forecast_start=pd.Timestamp(year=2019, month=9, day=1), 
-)
-
-print(fc_df)
-fc_df.to_csv(r'C:\Users\camer\projects\ev_load_fc\recursive_forecast.csv', index=False)

@@ -5,6 +5,7 @@ logs/
 mlruns/
 images/plots/
 mlflow_store/
+catboost_info/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

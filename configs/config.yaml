@@ -18,6 +18,7 @@ paths:
   images: "images"
   logs: "logs"
   configs: "configs"
+  predictions: "datasets/05_predictions"
 
 
 files:
@@ -282,3 +283,21 @@ inference:
 
   slope: 0.0008441210535607902
   intercept: 33.929973564758996
+
+  # Data sources
+  raw_hourly: "datasets/03_processed/combined_processed.csv"
+  X_set: "X_detrend"           # Prefix of the X feature CSV in the feature store
+
+  # MLflow model selection
+  experiment_name: "Ensemble Models Detrend"
+  model_family: ""             # Optional tag filter: e.g. "XGBoost", "CatBoost". Empty = no filter.
+  feature_version: ""          # Optional tag filter: e.g. "E_f_30_rfe_20". Empty = no filter.
+  metric: "rmse"               # Required: rank runs by "best_rmse" or "best_mae". Choose from: "rmse", "mae".
+
+  # Forecast settings
+  horizon: 168                 # Number of steps (hours) to forecast
+  inference_start: "2019-10-01 00:00:00"  # Timestamp of first forecast step
+
+  # Confidence intervals
+  confidence_intervals: [0.80, 0.95]  # CI levels to compute, e.g. 0.80 → yhat_lower_80 / yhat_upper_80
+  n_bootstrap: 50              # Bootstrap samples for gradient boosting CI (XGBoost/LightGBM/CatBoost)
