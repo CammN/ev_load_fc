@@ -169,11 +169,11 @@ training:
                                  # Use format "{fe_method_1}_{k_1}_{fe_method_2}_{k_2}"
 
   mlflow:
-    experiment_name: "Ensemble Models Detrend"
+    experiment_name: "Prophet Detrend"
 
   optuna:
     verbosity: 30 # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL
-    models_to_run: ["XGBoost","CatBoost"] # List of models to train using Optuna studies
+    models_to_run: ["Prophet"] # List of models to train using Optuna studies
                                      # Choose from: "Random Forest" "AdaBoost" "XGBoost" "LightGBM" "CatBoost" "Prophet"
     trials: 100 # How many trials each Optuna study should have 
     metric: "rmse" # Evaluation metric used in Optuna trials, choose from: "rmse", "mae"

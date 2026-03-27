@@ -59,7 +59,8 @@ def cv_score_prophet_model(model:Prophet, y:pd.Series, n_splits:int) -> dict:
 
     # Fit model and cross validate
     model.fit(y_proph.dropna())
-    window_length = math.floor((len(y_proph)-366)/n_splits)
+    total_days = (y_proph['ds'].max() - y_proph['ds'].min()).days
+    window_length = math.floor((total_days - 366) / n_splits)
     cv = cross_validation(model=model, initial='366 days', horizon=f'{window_length} days', period=f'{window_length} days', disable_tqdm=True)
 
     # Calculate RMSE and MAE for each CV split
@@ -141,7 +142,6 @@ def objective(
             # Categorical values
             elif (not isinstance(range[0], float) and not isinstance(range[0], int)) or (not isinstance(range[-1], float) and not isinstance(range[-1], int)):
                 params[param] = trial.suggest_categorical(param, choices=range)
-        trial.suggest_categorical("random_state", choices=[seed])
             
         if model_name == "Prophet":
             cal = calender()
