@@ -250,19 +250,15 @@ def get_best_model(experiment_name:str, metric:str = "rmse", ascending:bool = Fa
 
     best_run = runs.iloc[0]
     best_run_id = best_run["run_id"]
-
-    # Walk up to parent run if this is a child run
-    parent_run_id = best_run.get("tags.mlflow.parentRunId")
-    parent_run = client.get_run(parent_run_id)
-    parent_run_name = parent_run.data.tags.get("mlflow.runName")
-    artifact_run_id = parent_run_id if parent_run_id else best_run_id
+    run_name = best_run.get("tags.mlflow.runName", "")
 
     flavour = _log_model_flavour(next(
         (name for name in ["XGBoost", "LightGBM", "CatBoost", "Prophet", "Random Forest", "AdaBoost"]
-         if name.lower() in parent_run_name.lower()),
+         if name.lower() in run_name.lower()),
         "sklearn"
     ))
-    model = flavour.load_model(f"runs:/{artifact_run_id}/model")
+    local_path = mlflow.artifacts.download_artifacts(f"runs:/{best_run_id}/model")
+    model = flavour.load_model(Path(local_path).as_uri())
 
     print(f"Best run ID : {best_run_id}")
     print(f"Best {metric}  : {best_run[f'metrics.{metric}']:.4f}")

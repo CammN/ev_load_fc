@@ -169,13 +169,13 @@ training:
                                  # Use format "{fe_method_1}_{k_1}_{fe_method_2}_{k_2}"
 
   mlflow:
-    experiment_name: "Prophet Detrend"
+    experiment_name: "Test"
 
   optuna:
     verbosity: 30 # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL
-    models_to_run: ["Prophet"] # List of models to train using Optuna studies
+    models_to_run: ["LightGBM"] # List of models to train using Optuna studies
                                      # Choose from: "Random Forest" "AdaBoost" "XGBoost" "LightGBM" "CatBoost" "Prophet"
-    trials: 100 # How many trials each Optuna study should have 
+    trials: 2 # How many trials each Optuna study should have 
     metric: "rmse" # Evaluation metric used in Optuna trials, choose from: "rmse", "mae"
     splits: 4 # Number of splits for time series cross-validation
 
@@ -289,7 +289,7 @@ inference:
   X_set: "X_detrend"           # Prefix of the X feature CSV in the feature store
 
   # MLflow model selection
-  experiment_name: "Ensemble Models Detrend"
+  experiment_name: "Test"
   model_family: ""             # Optional tag filter: e.g. "XGBoost", "CatBoost". Empty = no filter.
   feature_version: ""          # Optional tag filter: e.g. "E_f_30_rfe_20". Empty = no filter.
   metric: "rmse"               # Required: rank runs by "best_rmse" or "best_mae". Choose from: "rmse", "mae".

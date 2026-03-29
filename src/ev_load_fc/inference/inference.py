@@ -11,6 +11,8 @@ from ev_load_fc.features.feature_creation import (
 )
 from typing import Union, List
 
+HOLIDAYS = list(CFG["features"]["feature_engineering"]["holidays"])
+
 def sarimax_one_step(
         fitted_model:SARIMAXResults, 
         y_test:pd.Series, 
@@ -87,7 +89,8 @@ def recursive_forecast(
     """
 
     feature_set  = get_feature_set(fitted_model)
-    feature_set  = [feat for feat in feature_set if feat in X.columns and feat != 'energy'] # restrict to features we have precomputed in X, and exclude energy column itself as this is what we will be updating in our rolling data
+    feature_set  = [str(feat) for feat in feature_set if str(feat) in X.columns and str(feat) != 'energy'] # restrict to features we have precomputed in X, and exclude energy column itself as this is what we will be updating in our rolling data
+    feature_set += HOLIDAYS
     energy_feature_set = [feat for feat in feature_set if "energy" in feat]
     raw_energy_cols = [feat for feat in raw_hourly.columns if "energy" in feat]
 

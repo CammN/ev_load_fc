@@ -3,11 +3,9 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass
 from scipy import stats
-
-import mlflow
-
 from ev_load_fc.training.mlflow_api import init_mlflow, get_best_model
-from ev_load_fc.inference.inference import recursive_forecast
+from ev_load_fc.inference.inference import HOLIDAYS, recursive_forecast
+import json
 
 import logging
 logger = logging.getLogger(__name__)
@@ -105,7 +103,7 @@ class InferencePipeline:
         )
 
         # Load precomputed feature matrix X
-        x_path = self.cfg.feature_store / f"{self.cfg.X_set}_{feature_ver}.csv"
+        x_path = self.cfg.feature_store / f"{self.cfg.X_set}.csv"
         logger.info(f"Loading X from {x_path}")
         self.X = pd.read_csv(x_path, parse_dates=["timestamp"], index_col="timestamp")
 
@@ -117,6 +115,21 @@ class InferencePipeline:
     # ------------------------------------------------------------------
     # Confidence interval estimation
     # ------------------------------------------------------------------
+
+    def _get_model_features(self) -> list:
+        """Return the feature names the model was trained on."""
+        if hasattr(self.model, "feature_names_in_"):        # sklearn / RF / AdaBoost
+            return list(self.model.feature_names_in_)
+        if hasattr(self.model, "feature_name_"):            # LightGBM sklearn API
+            return list(self.model.feature_name_)
+        if hasattr(self.model, "feature_name"):             # LightGBM booster method
+            return list(self.model.feature_name())
+        if hasattr(self.model, "get_booster"):              # XGBoost
+            return list(self.model.get_booster().feature_names)
+        if hasattr(self.model, "feature_names_"):           # CatBoost
+            return list(self.model.feature_names_)
+        logger.warning("Could not determine training features from model; using all X columns.")
+        return list(self.X.columns)
 
     def _rf_std(self, X_forecast: pd.DataFrame) -> np.ndarray:
         """Std of individual tree predictions for RF / AdaBoost."""
@@ -178,6 +191,13 @@ class InferencePipeline:
 
         Returns a DataFrame with columns yhat_lower_X and yhat_upper_X for each CI level.
         """
+        training_features = self._get_model_features()
+
+        holiday_features = {feat for feat in training_features if 
+                            feat[:3] in [h[:3] for h in HOLIDAYS]}
+
+        X_forecast = X_forecast[training_features]
+
         model_type = type(self.model).__name__
 
         if hasattr(self.model, "estimators_"):
@@ -212,10 +232,19 @@ class InferencePipeline:
 
     def _save_predictions(self, fc_df: pd.DataFrame, run_id: str) -> pathlib.Path:
         """Save forecast DataFrame to datasets/05_predictions/<run_id>_<feature_version>/predictions.csv."""
-        out_dir = self.cfg.predictions_dir / f"{run_id}_{self._resolved_feature_version}"
+
+        inference_id = f"start_{self.cfg.inference_start}_horizon_{self.cfg.horizon}"
+
+        out_dir = self.cfg.predictions_dir / f"{run_id}" / inference_id
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / "predictions.csv"
+
+        out_name = f"predictions_{inference_id}.csv"
+        out_path = out_dir / inference_id / out_name
         fc_df.to_csv(out_path, index=False)
+
+        with open('data.json', 'w') as fp:
+            json.dump(self.cfg, fp)
+
         logger.info(f"Predictions saved to {out_path}")
         return out_path
 
