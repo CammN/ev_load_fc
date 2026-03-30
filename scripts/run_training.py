@@ -18,7 +18,6 @@ def build_pipeline_params(exp_name:str|None=None, model_names:List[str]|None=Non
         # Paths and files
         "feature_store": resolve_path(CFG["paths"]["feature_store"]),
         "configs": resolve_path(CFG["paths"]["configs"]),
-        "images": resolve_path(CFG["paths"]["images"]),
         "train": CFG['files']['train'],
         "test": CFG['files']['test'],
         # MLFlow parameters

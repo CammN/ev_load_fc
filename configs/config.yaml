@@ -155,9 +155,9 @@ features:
     weather: False
     traffic: False
     scale_method: ""
-    k_1: 20            # Number of features to select in first round of feature elimination
+    k_1: 30            # Number of features to select in first round of feature elimination
     fe_method_1: "f"   # Method to select K best features from X_train - 'f', 'mi', 'imp', 'rfe', 'rfecv'
-    k_2: 10            # Number of features to select in second round of feature elimination (must have k_1 >= k_2)
+    k_2: 20            # Number of features to select in second round of feature elimination (must have k_1 >= k_2)
     fe_method_2: "rfe" # Method to select K best features from X_train - 'f', 'mi', 'imp', 'rfe', 'rfecv'
     correlation_threshold: 1.0
 
@@ -175,7 +175,7 @@ training:
     verbosity: 30 # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL
     models_to_run: ["LightGBM"] # List of models to train using Optuna studies
                                      # Choose from: "Random Forest" "AdaBoost" "XGBoost" "LightGBM" "CatBoost" "Prophet"
-    trials: 2 # How many trials each Optuna study should have 
+    trials: 2 # How man5y trials each Optuna study should have 
     metric: "rmse" # Evaluation metric used in Optuna trials, choose from: "rmse", "mae"
     splits: 4 # Number of splits for time series cross-validation
 
@@ -280,9 +280,6 @@ training:
 
 
 inference:
-
-  slope: 0.0008441210535607902
-  intercept: 33.929973564758996
 
   # Data sources
   raw_hourly: "datasets/03_processed/combined_processed.csv"

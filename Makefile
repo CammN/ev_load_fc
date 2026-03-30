@@ -38,6 +38,20 @@ license_check:
 	$(PYRUN) pip-licenses
 	$(PYRUN) pip-licenses --fail-on "GPL" --partial-match
 
+
+# Scripts
+extraction:
+	$(PYRUN) scripts/run_extraction.py
+enrichment:
+	$(PYRUN) scripts/run_enrichment.py
+features:
+	$(PYRUN) scripts/run_features.py
+training:
+	$(PYRUN) scripts/run_training.py
+inference:
+	$(PYRUN) scripts/run_inference.py
+
+
 # Tests
 coverage:
 	@echo "Coverage target is disabled because no automated pytest suites are configured."
