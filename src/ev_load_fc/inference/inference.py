@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 from statsmodels.tsa.statespace.sarimax import SARIMAXResults
 from prophet import Prophet
-from ev_load_fc.config import CFG
+from ev_load_fc.config import CFG, PROJECT_ROOT
 from ev_load_fc.features.feature_creation import (
     lag_features, 
     rolling_window_features,
@@ -156,8 +156,9 @@ def recursive_forecast(
 
     # Add back trend if model was trained on detrended data
     if CFG["features"]["detrend"]:
-        slope = CFG["inference"]["slope"]
-        intercept = CFG["inference"]["intercept"]
+        detrend_params = pd.read_csv(PROJECT_ROOT / "configs" / "detrend_params.csv")
+        slope = detrend_params["slope"].iloc[0]
+        intercept = detrend_params["intercept"].iloc[0]
         t_future = np.arange(len(raw_hourly), len(raw_hourly) + horizon)
         trend_future = slope * t_future + intercept
         fc_series += trend_future

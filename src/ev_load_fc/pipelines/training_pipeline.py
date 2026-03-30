@@ -14,7 +14,6 @@ class TrainingPipelineConfig:
     # Paths and data
     feature_store: pathlib.Path
     configs: pathlib.Path
-    images: pathlib.Path
     train: str
     test: str
     # MLFlow parameters
@@ -67,8 +66,7 @@ class TrainingPipeline:
         )
         if len(model_runs) > 0:
             last_run_name = model_runs['tags.mlflow.runName'][0]
-            last_run_number = last_run_name[-1]
-            next_run_number = int(last_run_number) + 1
+            next_run_number = int(last_run_name.split(" run ")[-1]) + 1
         else:
             next_run_number = 1
         run_name = f"{model_name} run {next_run_number}"
@@ -77,9 +75,8 @@ class TrainingPipeline:
 
         # Initiate the parent run and call the hyperparameter tuning child run logic
         with mlflow.start_run(
-            experiment_id=experiment_id, 
-            run_name=run_name, 
-            nested=True,
+            experiment_id=experiment_id,
+            run_name=run_name,
             description=f"Parent run {next_run_number} of {model_name} in experiment {experiment_id}",
         ) as parent_run:
 
@@ -115,6 +112,7 @@ class TrainingPipeline:
                         experiment_id=experiment_id,
                         parent_run_name=run_name,
                         parent_run_id=parent_run_id,
+                        feature_set_version=self.cfg.feature_version,
                         seed=None,
                     ),
                     n_trials=self.cfg.trials, 
@@ -132,7 +130,6 @@ class TrainingPipeline:
                     train_path=self.train_path,
                     test_path=self.test_path,
                     config_dir=self.cfg.configs,
-                    images_dir=self.cfg.images,
                     run_num=next_run_number,
                     metric=self.cfg.metric,
                 )

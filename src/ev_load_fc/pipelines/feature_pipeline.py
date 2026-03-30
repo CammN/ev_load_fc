@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import pathlib
 from dataclasses import dataclass 
+from ev_load_fc.data.loading import col_standardisation
 from ev_load_fc.features.feature_creation import (
     detrend,
     time_features, 
@@ -55,7 +56,7 @@ class FeaturePipelineConfig:
 
 
 class FeaturePipeline:
-
+    
 
     def __init__(self, config: FeaturePipelineConfig):
         self.cfg = config
@@ -292,6 +293,10 @@ class FeaturePipeline:
         # Save model data
         train = pd.concat([X_train, y_train], axis=1)
         test  = pd.concat([X_test, y_test], axis=1)
+
+        # Normalise all column names before saving into feature store for consistency
+        train = col_standardisation(train)
+        test  = col_standardisation(test)
 
         train.to_csv(self.cfg.feature_store / f"{self.cfg.train}_{self.version}.csv", index=True, index_label='timestamp')
         test.to_csv(self.cfg.feature_store / f"{self.cfg.test}_{self.version}.csv", index=True, index_label='timestamp')

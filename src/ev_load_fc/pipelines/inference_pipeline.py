@@ -3,9 +3,11 @@ import numpy as np
 import pandas as pd
 from dataclasses import dataclass
 from scipy import stats
+from ev_load_fc.data.loading import col_standardisation
 from ev_load_fc.training.mlflow_api import init_mlflow, get_best_model
 from ev_load_fc.inference.inference import HOLIDAYS, recursive_forecast
-import json
+from ev_load_fc.features.feature_creation import flatten_nested_dict
+from ev_load_fc.config import CFG
 
 import logging
 logger = logging.getLogger(__name__)
@@ -233,20 +235,52 @@ class InferencePipeline:
     def _save_predictions(self, fc_df: pd.DataFrame, run_id: str) -> pathlib.Path:
         """Save forecast DataFrame to datasets/05_predictions/<run_id>_<feature_version>/predictions.csv."""
 
-        inference_id = f"start_{self.cfg.inference_start}_horizon_{self.cfg.horizon}"
+        short_start_date  = self.cfg.inference_start.strftime("%y%m%d")
+        inference_id = f"start_{short_start_date}_horizon_{self.cfg.horizon}"
 
         out_dir = self.cfg.predictions_dir / f"{run_id}" / inference_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
         out_name = f"predictions_{inference_id}.csv"
-        out_path = out_dir / inference_id / out_name
+        out_path = out_dir / out_name
         fc_df.to_csv(out_path, index=False)
-
-        with open('data.json', 'w') as fp:
-            json.dump(self.cfg, fp)
 
         logger.info(f"Predictions saved to {out_path}")
         return out_path
+
+    def _validate_inference_start(self):
+        """Validate that inference_start lies within raw_hourly and has sufficient lag history.
+
+        Raises:
+            ValueError: If inference_start is outside the data range, or if there is
+                        insufficient historical data before it to compute all lag features.
+        """
+        data_min = self.raw_hourly.index.min()
+        data_max = self.raw_hourly.index.max()
+
+        if self.cfg.inference_start < data_min or self.cfg.inference_start > data_max:
+            raise ValueError(
+                f"inference_start {self.cfg.inference_start} is outside the available data range "
+                f"[{data_min}, {data_max}]."
+            )
+
+        tfd = CFG["features"]["feature_engineering"]["time_feature_dict"]
+        max_lag = max(flatten_nested_dict(tfd))
+        required_start = self.cfg.inference_start - pd.Timedelta(hours=max_lag)
+
+        if required_start < data_min:
+            shortfall = int((data_min - required_start).total_seconds() // 3600)
+            raise ValueError(
+                f"inference_start {self.cfg.inference_start} does not have enough historical data "
+                f"for lag features. Requires {max_lag} hours of lookback (back to {required_start}), "
+                f"but raw_hourly only starts at {data_min} — {shortfall} hours short. "
+                f"Set inference_start to {data_min + pd.Timedelta(hours=max_lag)} or later."
+            )
+
+        logger.info(
+            f"inference_start {self.cfg.inference_start} validated — "
+            f"{max_lag}h lookback available (max lag required: {max_lag}h)."
+        )
 
     # ------------------------------------------------------------------
     # Main
@@ -258,6 +292,7 @@ class InferencePipeline:
 
         self._load_model()
         self._load_data()
+        self._validate_inference_start()
 
         logger.info(
             f"Running recursive forecast: start={self.cfg.inference_start}, horizon={self.cfg.horizon}"
@@ -273,6 +308,7 @@ class InferencePipeline:
 
         # Compute confidence intervals using the precomputed X features at forecast steps
         X_forecast = self.X.loc[fc_df["timestamp"]]
+        X_forecast = col_standardisation(X_forecast)
         ci_df = self._compute_ci(X_forecast)
 
         # Attach CI columns (offset from yhat)

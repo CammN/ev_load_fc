@@ -1,7 +1,7 @@
 # Packages
 import pandas as pd
 from datetime import datetime
-from meteostat import Hourly 
+from meteostat import hourly 
 import pandas as pd
 import logging
 logger = logging.getLogger(__name__)
@@ -36,6 +36,7 @@ def col_standardisation(df:pd.DataFrame)->pd.DataFrame:
                         .replace('-', '_')
                         .replace('/', '_') 
                         .replace(':', '_') 
+                        .replace("'", "") 
                         )
         df_renamed = df_renamed.rename(columns={col_name: new_col_name})
 
@@ -128,7 +129,7 @@ def meteo_stat_temp(stations:list, min_ts:pd.Timestamp, max_ts:pd.Timestamp) -> 
     """
 
     # Import weather data on hourly basis
-    hourly_data = Hourly(stations, min_ts, max_ts)
+    hourly_data = hourly(stations, min_ts, max_ts)
     meteo_data = hourly_data.fetch()
     # Extract temperature data
     temp_data = meteo_data[['temp']].reset_index().rename(columns={'station':'temp_ws', 'time':'starttime'})

@@ -103,7 +103,6 @@ def parent_logging(
     train_path:Path,
     test_path:Path,
     config_dir:Path,
-    images_dir:Path,
     run_num:int,
     metric:str="rmse",
 ) -> None:
@@ -177,7 +176,7 @@ def parent_logging(
     model = model.fit(X_train, y_train)
     # Log best fitted model
     model_flavour = _log_model_flavour(model_name)
-    model_flavour.log_model(model, artifact_path='model')
+    model_flavour.log_model(model, name='model')
 
     ### Create and log plots
     plotter = EvaluationPlots(
@@ -191,23 +190,18 @@ def parent_logging(
     )
     # Log the correlation plot
     correlation_plot = plotter.plot_correlation_with_target()
-    corr_path = str(images_dir/"plots"/f"{model_name}_{run_num}_correlations.png")
-    mlflow.log_figure(figure=correlation_plot, artifact_file=corr_path)
+    mlflow.log_figure(figure=correlation_plot, artifact_file=f"plots/{model_name}_{run_num}_correlations.png")
     # Log the feature importances plot
     importances = plotter.plot_feature_importance()
-    feat_imp_path = str(images_dir/"plots"/f"{model_name}_{run_num}_feature_importances.png")
-    mlflow.log_figure(figure=importances, artifact_file=feat_imp_path)
+    mlflow.log_figure(figure=importances, artifact_file=f"plots/{model_name}_{run_num}_feature_importances.png")
     # Log the residuals plot
     residuals = plotter.plot_residuals()
-    resid_path = str(images_dir/"plots"/f"{model_name}_{run_num}_residuals.png")
-    mlflow.log_figure(figure=residuals, artifact_file=resid_path)
+    mlflow.log_figure(figure=residuals, artifact_file=f"plots/{model_name}_{run_num}_residuals.png")
     # Optuna study plots
     fig_param_importance = plot_param_importances(study)
     fig_optimization_history = plot_optimization_history(study)
-    param_imp_path = str(images_dir/"plots"/f"{model_name}_{run_num}_param_importances.html")
-    opt_hist_path = str(images_dir/"plots"/f"{model_name}_{run_num}_optimization_history.html")
-    mlflow.log_figure(fig_param_importance,artifact_file=param_imp_path)
-    mlflow.log_figure(fig_optimization_history,artifact_file=opt_hist_path)
+    mlflow.log_figure(fig_param_importance, artifact_file=f"plots/{model_name}_{run_num}_param_importances.html")
+    mlflow.log_figure(fig_optimization_history, artifact_file=f"plots/{model_name}_{run_num}_optimization_history.html")
 
     
 def get_best_model(experiment_name:str, metric:str = "rmse", ascending:bool = False, filter_string:str|None=None):
@@ -250,13 +244,9 @@ def get_best_model(experiment_name:str, metric:str = "rmse", ascending:bool = Fa
 
     best_run = runs.iloc[0]
     best_run_id = best_run["run_id"]
-    run_name = best_run.get("tags.mlflow.runName", "")
 
-    flavour = _log_model_flavour(next(
-        (name for name in ["XGBoost", "LightGBM", "CatBoost", "Prophet", "Random Forest", "AdaBoost"]
-         if name.lower() in run_name.lower()),
-        "sklearn"
-    ))
+    model_family = best_run.get("tags.model_family", "")
+    flavour = _log_model_flavour(model_family)
     local_path = mlflow.artifacts.download_artifacts(f"runs:/{best_run_id}/model")
     model = flavour.load_model(Path(local_path).as_uri())
 
