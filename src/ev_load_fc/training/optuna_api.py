@@ -10,6 +10,7 @@ from prophet.diagnostics import cross_validation
 from prophet import Prophet
 from pandas.tseries.holiday import USFederalHolidayCalendar as calender
 from ev_load_fc.training.registry import build_model
+from ev_load_fc.training.mlflow_api import _log_model_flavour
 import logging
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ def objective(
         experiment_id:str|None=None,
         parent_run_name:str|None=None,
         parent_run_id:str|None=None,
+        feature_set_version:str|None=None,
         seed:int=42,
     )->float:
     """Conducts a single trial of hyperparameter optimization using Optuna for the specified model and search space.
@@ -120,6 +122,7 @@ def objective(
                 "project": "EV Load Forecasting",
                 "optimizer_engine": "optuna",
                 "model_family": model_name,
+                "feature_set_version": feature_set_version or "",
                 "level": "child",
             }
         )
@@ -188,6 +191,15 @@ def objective(
         mlflow.log_params(params)
         mlflow.log_metric("rmse", mean_rmse)
         mlflow.log_metric("mae", mean_mae)
+
+        # Refit on full training data and persist model artifact
+        est_final = build_model(model_name=model_name, params=params, holidays_df=holidays_df)
+        if model_name == "Prophet":
+            est_final.fit(prophet_df_format(y))
+        else:
+            est_final.fit(X, y)
+        flavour = _log_model_flavour(model_name)
+        flavour.log_model(est_final, name="model")
 
     return mean_rmse if metric == "rmse" else mean_mae
 
