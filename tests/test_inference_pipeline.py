@@ -1,6 +1,8 @@
 """Tests for InferencePipeline: filter string building, CI computation, and output structure."""
 
+import json
 import pathlib
+import re
 import numpy as np
 import pandas as pd
 import pytest
@@ -51,7 +53,10 @@ def _make_dummy_X(n=24):
 # Lightweight stand-in classes so hasattr checks work without MagicMock auto-creation
 class _MockRF:
     """Minimal RandomForest-like object with estimators_ attribute."""
+    _FEATURE_COLS = [f"feat_{i}" for i in range(5)]
+
     def __init__(self, n_estimators=20, n_steps=24):
+        self.feature_names_in_ = self._FEATURE_COLS
         self.estimators_ = []
         for _ in range(n_estimators):
             est = MagicMock()
@@ -189,6 +194,7 @@ class TestComputeCiUnsupportedModel:
 
     def test_returns_empty_dataframe(self, pipeline):
         pipeline.model = _MockUnknown()
+        pipeline.X = _make_dummy_X()  # needed for fallback feature extraction
         ci_df = pipeline._compute_ci(_make_dummy_X())
         assert isinstance(ci_df, pd.DataFrame)
         assert len(ci_df.columns) == 0
@@ -198,35 +204,87 @@ class TestComputeCiUnsupportedModel:
 # _save_predictions
 # ---------------------------------------------------------------------------
 
+_DIR_PATTERN = re.compile(
+    r"^\d{8}_\d{6}__\w+__\d+h__from_\d{8}$"
+)
+
+
+def _setup_save(pipeline, tmp_path, model_family="LightGBM"):
+    """Helper: set pipeline state needed for _save_predictions."""
+    pipeline._resolved_feature_version = "E_f_30_rfe_20"
+    pipeline.cfg.predictions_dir = tmp_path / "predictions"
+    pipeline.best_run = pd.Series({"tags.model_family": model_family})
+
+
 class TestSavePredictions:
 
-    def test_csv_written_at_correct_path(self, pipeline, tmp_path):
-        pipeline._resolved_feature_version = "E_f_30_rfe_20"
-        pipeline.cfg.predictions_dir = tmp_path / "predictions"
-
+    def test_csv_written_inside_structured_dir(self, pipeline, tmp_path):
+        _setup_save(pipeline, tmp_path)
         out_path = pipeline._save_predictions(_make_dummy_fc_df(), run_id="abc123")
+        assert out_path.name == "predictions.csv"
+        assert out_path.exists()
+        assert _DIR_PATTERN.match(out_path.parent.name), (
+            f"Dir name '{out_path.parent.name}' does not match expected pattern"
+        )
 
-        expected = tmp_path / "predictions" / "abc123_E_f_30_rfe_20" / "predictions.csv"
-        assert out_path == expected
-        assert expected.exists()
+    def test_dir_name_contains_model_family(self, pipeline, tmp_path):
+        _setup_save(pipeline, tmp_path, model_family="CatBoost")
+        out_path = pipeline._save_predictions(_make_dummy_fc_df(), run_id="abc123")
+        assert "CatBoost" in out_path.parent.name
+
+    def test_dir_name_contains_horizon(self, pipeline, tmp_path):
+        _setup_save(pipeline, tmp_path)
+        out_path = pipeline._save_predictions(_make_dummy_fc_df(), run_id="abc123")
+        assert "24h" in out_path.parent.name
+
+    def test_dir_name_contains_start_date(self, pipeline, tmp_path):
+        _setup_save(pipeline, tmp_path)
+        out_path = pipeline._save_predictions(_make_dummy_fc_df(), run_id="abc123")
+        assert "from_20191001" in out_path.parent.name
+
+    def test_metadata_json_written(self, pipeline, tmp_path):
+        _setup_save(pipeline, tmp_path)
+        out_path = pipeline._save_predictions(_make_dummy_fc_df(), run_id="abc123")
+        meta_path = out_path.parent / "metadata.json"
+        assert meta_path.exists()
+
+    def test_metadata_json_schema(self, pipeline, tmp_path):
+        _setup_save(pipeline, tmp_path)
+        out_path = pipeline._save_predictions(_make_dummy_fc_df(), run_id="abc123")
+        with open(out_path.parent / "metadata.json") as f:
+            meta = json.load(f)
+        required_keys = {"run_id", "model_family", "feature_version", "horizon",
+                         "inference_start", "ci_levels", "metrics", "created_at"}
+        assert required_keys == set(meta.keys())
+        assert meta["run_id"] == "abc123"
+        assert meta["model_family"] == "LightGBM"
+        assert meta["horizon"] == 24
+        assert isinstance(meta["ci_levels"], list)
+        assert isinstance(meta["metrics"], dict)
+
+    def test_metadata_metrics_computed_when_actuals_present(self, pipeline, tmp_path):
+        _setup_save(pipeline, tmp_path)
+        fc_df = _make_dummy_fc_df()  # has y column
+        out_path = pipeline._save_predictions(fc_df, run_id="abc123")
+        with open(out_path.parent / "metadata.json") as f:
+            meta = json.load(f)
+        assert "rmse" in meta["metrics"]
+        assert "mae" in meta["metrics"]
+        assert meta["metrics"]["rmse"] >= 0
 
     def test_csv_contains_all_columns(self, pipeline, tmp_path):
-        pipeline._resolved_feature_version = "v1"
-        pipeline.cfg.predictions_dir = tmp_path / "predictions"
-
+        _setup_save(pipeline, tmp_path)
         fc_df = _make_dummy_fc_df()
         out_path = pipeline._save_predictions(fc_df, run_id="run_xyz")
-
         loaded = pd.read_csv(out_path)
         assert list(loaded.columns) == list(fc_df.columns)
         assert len(loaded) == len(fc_df)
 
     def test_directory_created_if_missing(self, pipeline, tmp_path):
-        pipeline._resolved_feature_version = "v2"
+        _setup_save(pipeline, tmp_path)
         pipeline.cfg.predictions_dir = tmp_path / "new_dir" / "predictions"
-
-        pipeline._save_predictions(_make_dummy_fc_df(), run_id="run1")
-        assert (tmp_path / "new_dir" / "predictions" / "run1_v2" / "predictions.csv").exists()
+        out_path = pipeline._save_predictions(_make_dummy_fc_df(), run_id="run1")
+        assert out_path.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -242,10 +300,11 @@ class TestRunIntegration:
 
         mock_rf = _MockRF(n_steps=n)
 
-        mock_run = {
+        mock_run = pd.Series({
             "run_id": "test_run_id_123",
             "tags.feature_set_version": "E_f_30_rfe_20",
-        }
+            "tags.model_family": "RandomForest",
+        })
 
         pipeline.cfg.predictions_dir = tmp_path / "predictions"
         pipeline.cfg.feature_version = "E_f_30_rfe_20"
@@ -256,8 +315,8 @@ class TestRunIntegration:
 
         def _fake_load_data():
             pipeline.raw_hourly = pd.DataFrame(
-                {"energy": np.ones(500)},
-                index=pd.date_range("2018-01-01", periods=500, freq="h"),
+                {"energy": np.ones(20000)},
+                index=pd.date_range("2018-01-01", periods=20000, freq="h"),
             )
             pipeline.X = X_dummy
             pipeline._resolved_feature_version = "E_f_30_rfe_20"
@@ -280,7 +339,11 @@ class TestRunIntegration:
         fc_df = _make_dummy_fc_df(n)
         X_dummy = _make_dummy_X(n)
         mock_rf = _MockRF(n_steps=n)
-        mock_run = {"run_id": "saved_run_abc", "tags.feature_set_version": "E_f_30_rfe_20"}
+        mock_run = pd.Series({
+            "run_id": "saved_run_abc",
+            "tags.feature_set_version": "E_f_30_rfe_20",
+            "tags.model_family": "RandomForest",
+        })
 
         pipeline.cfg.predictions_dir = tmp_path / "predictions"
         pipeline.cfg.feature_version = "E_f_30_rfe_20"
@@ -291,8 +354,8 @@ class TestRunIntegration:
 
         def _fake_load_data():
             pipeline.raw_hourly = pd.DataFrame(
-                {"energy": np.ones(500)},
-                index=pd.date_range("2018-01-01", periods=500, freq="h"),
+                {"energy": np.ones(20000)},
+                index=pd.date_range("2018-01-01", periods=20000, freq="h"),
             )
             pipeline.X = X_dummy
             pipeline._resolved_feature_version = "E_f_30_rfe_20"
@@ -305,5 +368,69 @@ class TestRunIntegration:
         ):
             pipeline.run()
 
-        expected_csv = tmp_path / "predictions" / "saved_run_abc_E_f_30_rfe_20" / "predictions.csv"
-        assert expected_csv.exists()
+        predictions_dir = tmp_path / "predictions"
+        run_dirs = list(predictions_dir.iterdir())
+        assert len(run_dirs) == 1, "Expected exactly one inference run directory"
+        assert (run_dirs[0] / "predictions.csv").exists()
+        assert (run_dirs[0] / "metadata.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# CI fix — verify lower < yhat < upper in full run() output
+# ---------------------------------------------------------------------------
+
+class TestCIFixInRunOutput:
+    """Verify the CI calculation bug fix: lower bounds < yhat, upper bounds > yhat."""
+
+    def _run_pipeline_with_mock_rf(self, pipeline, tmp_path, n=24):
+        fc_df = _make_dummy_fc_df(n)
+        X_dummy = _make_dummy_X(n)
+        mock_rf = _MockRF(n_steps=n)
+        mock_run = pd.Series({
+            "run_id": "ci_fix_run",
+            "tags.feature_set_version": "E_f_30_rfe_20",
+            "tags.model_family": "RandomForest",
+        })
+
+        pipeline.cfg.predictions_dir = tmp_path / "predictions"
+        pipeline.cfg.feature_version = "E_f_30_rfe_20"
+
+        def _fake_load_model():
+            pipeline.model = mock_rf
+            pipeline.best_run = mock_run
+
+        def _fake_load_data():
+            pipeline.raw_hourly = pd.DataFrame(
+                {"energy": np.ones(20000)},
+                index=pd.date_range("2018-01-01", periods=20000, freq="h"),
+            )
+            pipeline.X = X_dummy
+            pipeline._resolved_feature_version = "E_f_30_rfe_20"
+
+        with (
+            patch("ev_load_fc.pipelines.inference_pipeline.init_mlflow"),
+            patch.object(pipeline, "_load_model", side_effect=_fake_load_model),
+            patch.object(pipeline, "_load_data", side_effect=_fake_load_data),
+            patch("ev_load_fc.pipelines.inference_pipeline.recursive_forecast", return_value=fc_df),
+        ):
+            return pipeline.run()
+
+    def test_lower_80_less_than_yhat(self, pipeline, tmp_path):
+        result = self._run_pipeline_with_mock_rf(pipeline, tmp_path)
+        assert (result["yhat_lower_80"] <= result["yhat"]).all(), \
+            "lower_80 must be <= yhat for all steps"
+
+    def test_upper_80_greater_than_yhat(self, pipeline, tmp_path):
+        result = self._run_pipeline_with_mock_rf(pipeline, tmp_path)
+        assert (result["yhat_upper_80"] >= result["yhat"]).all(), \
+            "upper_80 must be >= yhat for all steps"
+
+    def test_lower_95_less_than_lower_80(self, pipeline, tmp_path):
+        result = self._run_pipeline_with_mock_rf(pipeline, tmp_path)
+        assert (result["yhat_lower_95"] <= result["yhat_lower_80"]).all(), \
+            "95% CI lower must be <= 80% CI lower (wider interval)"
+
+    def test_upper_95_greater_than_upper_80(self, pipeline, tmp_path):
+        result = self._run_pipeline_with_mock_rf(pipeline, tmp_path)
+        assert (result["yhat_upper_95"] >= result["yhat_upper_80"]).all(), \
+            "95% CI upper must be >= 80% CI upper (wider interval)"
