@@ -7,6 +7,9 @@ images/plots/
 mlflow_store/
 catboost_info/
 mlflow.db
+.claude
+.codex
+uv.lock
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

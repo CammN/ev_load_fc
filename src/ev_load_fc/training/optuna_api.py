@@ -1,83 +1,15 @@
 import pandas as pd
-import math
 import numpy as np
 import mlflow
 from optuna.trial import Trial, FrozenTrial
 from optuna.study import Study
-from sklearn.metrics import root_mean_squared_error, mean_absolute_error
 from sklearn.model_selection import TimeSeriesSplit, cross_validate
-from prophet.diagnostics import cross_validation
-from prophet import Prophet
 from pandas.tseries.holiday import USFederalHolidayCalendar as calender
 from ev_load_fc.training.registry import build_model
 from ev_load_fc.training.mlflow_api import _log_model_flavour
+from ev_load_fc.training.prophet_api import prophet_df_format, cv_score_prophet_model
 import logging
 logger = logging.getLogger(__name__)
-
-
-def prophet_df_format(ts:pd.Series) -> pd.DataFrame:
-    """
-    Formats a time series for use with Prophet model.
-
-    Args:
-        ts (pd.Series): Pandas Series to format
-
-    Returns:
-        pd.DataFrame: Formatted dataframe for Prophet model
-    """
-    # Copy original series and extract index and target names
-    proph_df = ts.copy()
-    index_name  =  proph_df.index.name
-    target_name = proph_df.name
-
-    proph_df = proph_df.reset_index()
-    proph_df = proph_df.rename(columns={index_name:'ds', target_name:'y'})
-
-    return proph_df[['ds','y']]
-
-
-def cv_score_prophet_model(model:Prophet, y:pd.Series, n_splits:int) -> dict:
-    """
-    Conducts cross-validation for a Prophet model and returns the mean RMSE and MAE across splits.
-
-    Args:
-        model (Prophet): A Prophet model instance.
-        y (any): Input time series data.
-        n_splits (int): Number of CV splits.
-
-    Raises:
-        ValueError: If y is not in correct format and target is not provided.
-
-    Returns:
-        dict: {"rmse": float, "mae": float} mean scores across CV splits.
-    """
-
-    # Ensure y is in correct format for Prophet modelling
-    if isinstance(y, pd.Series):
-        y_proph = prophet_df_format(y)
-    else:
-        y_proph = y[['ds','y']].copy()
-
-    # Fit model and cross validate
-    model.fit(y_proph.dropna())
-    total_days = (y_proph['ds'].max() - y_proph['ds'].min()).days
-    window_length = math.floor((total_days - 366) / n_splits)
-    cv = cross_validation(model=model, initial='366 days', horizon=f'{window_length} days', period=f'{window_length} days', disable_tqdm=True)
-
-    # Calculate RMSE and MAE for each CV split
-    split_rmses = {}
-    split_maes = {}
-    for cutoff in cv['cutoff'].unique():
-        split = cv[cv['cutoff']==cutoff]
-        min_date, max_date = split['ds'].min(), split['ds'].max()
-        actual = y_proph[y_proph['ds'].between(min_date, max_date, inclusive='both')]
-        split_rmses[cutoff] = root_mean_squared_error(actual['y'], split['yhat'])
-        split_maes[cutoff] = mean_absolute_error(actual['y'], split['yhat'])
-
-    return {
-        "rmse": np.mean(list(split_rmses.values())),
-        "mae": np.mean(list(split_maes.values())),
-    }
 
 
 def objective(
@@ -186,6 +118,10 @@ def objective(
             )
             mean_rmse = -scores["test_neg_rmse"].mean()
             mean_mae = -scores["test_neg_mae"].mean()
+
+        # Store both metrics on the trial so parent_logging can always access them
+        trial.set_user_attr("rmse", mean_rmse)
+        trial.set_user_attr("mae", mean_mae)
 
         # Log child run to MLflow
         mlflow.log_params(params)

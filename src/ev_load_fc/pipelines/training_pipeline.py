@@ -88,6 +88,7 @@ class TrainingPipeline:
                     "model_family": model_name,
                     "feature_set_version": self.cfg.feature_version,
                     "level": "parent",
+                    "training_metric": self.cfg.metric,
                 }
             )
             

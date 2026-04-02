@@ -1,22 +1,63 @@
-.PHONY: mypy ty lint precommit-install precommit-run smoke mlflow-ui web-dev test coverage test-scripts test-all
-PYRUN = uv run 
+.PHONY: \
+	help \
+	mypy \
+	ty \
+	ruff \
+	lint \
+	bandit \
+	safety \
+	license_check \
+	extraction \
+	enrichment \
+	features \
+	training \
+	inference \
+	streamlit-app \
+	coverage \
+	test-all \
+	test-module \
+	mlflow-ui \
+	import-time
+	
+PYRUN = uv run
 
 SRC ?= src/ev_load_fc
 TEST_SCRIPT ?= character_analysis
 TEST_SCRIPT_IMPORT ?= model_builder.main
 
 help:
-	@echo "Targets:"
-	@echo "  make mypy"
-	@echo "  make ty"
-	@echo "  make lint"
-	@echo "  make test"
-	@echo "  make coverage"
-	@echo "  make test-all"
-	@echo "  make test-module"
-	@echo "  make mlflow-ui"
-	@echo "  make import-time"
-   
+	@echo ""
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "Code quality:"
+	@echo "  mypy            Run mypy type checking"
+	@echo "  ty              Run ty type checker"
+	@echo "  ruff            Run ruff linter"
+	@echo "  lint            Run ruff + mypy + ty"
+	@echo "  bandit          Run bandit security scanner"
+	@echo "  safety          Run safety dependency audit"
+	@echo "  license_check   Check dependency licenses"
+	@echo ""
+	@echo "Pipeline scripts:"
+	@echo "  extraction      Run data extraction script"
+	@echo "  enrichment      Run data enrichment script"
+	@echo "  features        Run feature engineering script"
+	@echo "  training        Run model training script"
+	@echo "  inference       Run inference script"
+	@echo ""
+	@echo "App:"
+	@echo "  streamlit-app   Launch Streamlit portfolio app"
+	@echo ""
+	@echo "Tests:"
+	@echo "  test-all        Run all pytest tests"
+	@echo "  test-module     Run a single module test (TEST_MODULE=<name>)"
+	@echo "  coverage        (disabled - no automated pytest suites configured)"
+	@echo ""
+	@echo "Logging & auditing:"
+	@echo "  mlflow-ui       Launch MLflow UI at http://127.0.0.1:5001"
+	@echo "  import-time     Profile import time (TEST_FILE_IMPORT=<module>)"
+	@echo ""
+
 
 mypy:
 	$(PYRUN) mypy $(SRC)
@@ -51,6 +92,9 @@ training:
 inference:
 	$(PYRUN) scripts/run_inference.py
 
+# App
+streamlit-app:
+	streamlit run streamlit_app/Home.py
 
 # Tests
 coverage:

@@ -7,8 +7,9 @@ from optuna.study import Study
 from optuna.visualization import plot_param_importances, plot_optimization_history
 from mlflow.data.sources import LocalArtifactDatasetSource
 from pandas.tseries.holiday import USFederalHolidayCalendar as calender
-from ev_load_fc.training.registry import build_model 
+from ev_load_fc.training.registry import build_model
 from ev_load_fc.training.evaluation import EvaluationPlots
+from ev_load_fc.training.prophet_api import prophet_df_format
 from ev_load_fc.config import PROJECT_ROOT, CFG
 from types import ModuleType
 
@@ -123,9 +124,11 @@ def parent_logging(
         None
     """
 
-    # Log best model's parameters and score
+    # Log best model's parameters and both metrics regardless of which was optimised
     mlflow.log_params(study.best_params)
-    mlflow.log_metric(f"best_{metric}", study.best_value)
+    best_attrs = study.best_trial.user_attrs
+    mlflow.log_metric("best_rmse", best_attrs.get("rmse", study.best_value if metric == "rmse" else float("nan")))
+    mlflow.log_metric("best_mae",  best_attrs.get("mae",  study.best_value if metric == "mae"  else float("nan")))
 
     # Create MLFlow datasets
     train_name = CFG['files']['train']
@@ -173,7 +176,10 @@ def parent_logging(
         holidays_df=holidays_df,
     )
     # Fit
-    model = model.fit(X_train, y_train)
+    if model_name == "Prophet":
+        model = model.fit(prophet_df_format(y_train))
+    else:
+        model = model.fit(X_train, y_train)
     # Log best fitted model
     model_flavour = _log_model_flavour(model_name)
     model_flavour.log_model(model, name='model')
@@ -191,12 +197,14 @@ def parent_logging(
     # Log the correlation plot
     correlation_plot = plotter.plot_correlation_with_target()
     mlflow.log_figure(figure=correlation_plot, artifact_file=f"plots/{model_name}_{run_num}_correlations.png")
-    # Log the feature importances plot
-    importances = plotter.plot_feature_importance()
-    mlflow.log_figure(figure=importances, artifact_file=f"plots/{model_name}_{run_num}_feature_importances.png")
-    # Log the residuals plot
-    residuals = plotter.plot_residuals()
-    mlflow.log_figure(figure=residuals, artifact_file=f"plots/{model_name}_{run_num}_residuals.png")
+    # Log the feature importances plot (skipped for Prophet — not a sklearn estimator)
+    if model_name != "Prophet":
+        importances = plotter.plot_feature_importance()
+        mlflow.log_figure(figure=importances, artifact_file=f"plots/{model_name}_{run_num}_feature_importances.png")
+    # Log the residuals plot (skipped for Prophet — predict() requires {ds} format, not sklearn X matrix)
+    if model_name != "Prophet":
+        residuals = plotter.plot_residuals()
+        mlflow.log_figure(figure=residuals, artifact_file=f"plots/{model_name}_{run_num}_residuals.png")
     # Optuna study plots
     fig_param_importance = plot_param_importances(study)
     fig_optimization_history = plot_optimization_history(study)

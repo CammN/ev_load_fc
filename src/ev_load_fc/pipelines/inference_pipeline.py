@@ -1,4 +1,6 @@
+import json
 import pathlib
+import datetime
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -109,6 +111,17 @@ class InferencePipeline:
         logger.info(f"Loading X from {x_path}")
         self.X = pd.read_csv(x_path, parse_dates=["timestamp"], index_col="timestamp")
 
+        # recursive_forecast needs lag history going back max_lag hours before inference_start.
+        # If X_set is a test-only file (starts at the train/test split), prepend the
+        # corresponding train file so that lag timestamps are available.
+        if self.cfg.X_set.startswith("test_"):
+            train_x_name = self.cfg.X_set.replace("test_", "train_", 1)
+            train_x_path = self.cfg.feature_store / f"{train_x_name}.csv"
+            if train_x_path.exists():
+                logger.info(f"Prepending train X from {train_x_path} to cover lag timestamps")
+                train_X = pd.read_csv(train_x_path, parse_dates=["timestamp"], index_col="timestamp")
+                self.X = pd.concat([train_X, self.X]).sort_index()
+
         logger.info(
             f"raw_hourly shape: {self.raw_hourly.shape}, "
             f"X shape: {self.X.shape}"
@@ -195,8 +208,24 @@ class InferencePipeline:
         """
         training_features = self._get_model_features()
 
-        holiday_features = {feat for feat in training_features if 
+        holiday_features = {feat for feat in training_features if
                             feat[:3] in [h[:3] for h in HOLIDAYS]}
+
+        # Normalise X_forecast column names to match model training names.
+        # col_standardisation lowercases everything, but models may have been trained
+        # with title-case holiday column names (e.g. "Independence_Day").
+        # Build a case-insensitive mapping: normalised_col → model_feature_name.
+        def _norm(s: str) -> str:
+            return s.lower().replace(" ", "_").replace("'", "").replace("-", "_")
+
+        norm_to_model = {_norm(f): f for f in training_features}
+        col_remap = {
+            col: norm_to_model[_norm(col)]
+            for col in X_forecast.columns
+            if col not in training_features and _norm(col) in norm_to_model
+        }
+        if col_remap:
+            X_forecast = X_forecast.rename(columns=col_remap)
 
         X_forecast = X_forecast[training_features]
 
@@ -233,17 +262,53 @@ class InferencePipeline:
     # ------------------------------------------------------------------
 
     def _save_predictions(self, fc_df: pd.DataFrame, run_id: str) -> pathlib.Path:
-        """Save forecast DataFrame to datasets/05_predictions/<run_id>_<feature_version>/predictions.csv."""
+        """Save forecast DataFrame and metadata to a structured directory under datasets/05_predictions/.
 
-        short_start_date  = self.cfg.inference_start.strftime("%y%m%d")
-        inference_id = f"start_{short_start_date}_horizon_{self.cfg.horizon}"
+        Directory name format:
+            {YYYYMMDD_HHMMSS}__{ModelFamily}__{horizon}h__from_{start_YYYYMMDD}
 
-        out_dir = self.cfg.predictions_dir / f"{run_id}" / inference_id
+        Each run directory contains:
+            predictions.csv  — forecast DataFrame (timestamp, yhat, y, CI columns)
+            metadata.json    — run configuration and summary metrics
+        """
+        created_at = datetime.datetime.now()
+        model_family = self.best_run.get("tags.model_family", "Unknown")
+        start_str = self.cfg.inference_start.strftime("%Y%m%d")
+        dir_name = (
+            f"{created_at.strftime('%Y%m%d_%H%M%S')}"
+            f"__{model_family}"
+            f"__{self.cfg.horizon}h"
+            f"__from_{start_str}"
+        )
+
+        out_dir = self.cfg.predictions_dir / dir_name
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        out_name = f"predictions_{inference_id}.csv"
-        out_path = out_dir / out_name
+        # Save predictions CSV
+        out_path = out_dir / "predictions.csv"
         fc_df.to_csv(out_path, index=False)
+
+        # Compute summary metrics if actuals are available
+        metrics = {}
+        if "y" in fc_df.columns and fc_df["y"].notna().any():
+            mask = fc_df["y"].notna()
+            residuals = fc_df.loc[mask, "y"] - fc_df.loc[mask, "yhat"]
+            metrics["rmse"] = float(np.sqrt((residuals ** 2).mean()))
+            metrics["mae"] = float(residuals.abs().mean())
+
+        # Save metadata JSON
+        metadata = {
+            "run_id": run_id,
+            "model_family": model_family,
+            "feature_version": getattr(self, "_resolved_feature_version", self.cfg.feature_version),
+            "horizon": self.cfg.horizon,
+            "inference_start": self.cfg.inference_start.isoformat(),
+            "ci_levels": self.cfg.confidence_intervals,
+            "metrics": metrics,
+            "created_at": created_at.isoformat(),
+        }
+        with open(out_dir / "metadata.json", "w") as f:
+            json.dump(metadata, f, indent=2)
 
         logger.info(f"Predictions saved to {out_path}")
         return out_path
@@ -311,12 +376,9 @@ class InferencePipeline:
         X_forecast = col_standardisation(X_forecast)
         ci_df = self._compute_ci(X_forecast)
 
-        # Attach CI columns (offset from yhat)
+        # Attach CI columns — ci_df stores signed offsets: lower=-z*std, upper=+z*std
         for col in ci_df.columns:
-            if "lower" in col:
-                fc_df[col] = fc_df["yhat"].values + ci_df[col].values
-            else:
-                fc_df[col] = fc_df["yhat"].values + ci_df[col].values
+            fc_df[col] = fc_df["yhat"].values + ci_df[col].values
 
         run_id = self.best_run["run_id"]
         self._save_predictions(fc_df, run_id)
