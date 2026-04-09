@@ -6,7 +6,7 @@ from pathlib import Path
 from optuna.study import Study
 from optuna.visualization import plot_param_importances, plot_optimization_history
 from mlflow.data.sources import LocalArtifactDatasetSource
-from pandas.tseries.holiday import USFederalHolidayCalendar as calender
+from ev_load_fc.features.feature_creation import get_holidays
 from ev_load_fc.training.registry import build_model
 from ev_load_fc.training.evaluation import EvaluationPlots
 from ev_load_fc.training.prophet_api import prophet_df_format
@@ -87,7 +87,6 @@ def _log_model_flavour(model_name: str) -> ModuleType:
         "CatBoost"      : mlflow.catboost,
         "Prophet"       : mlflow.prophet,
         "Random Forest" : mlflow.sklearn,
-        "AdaBoost"      : mlflow.sklearn,
     }
     flavour = flavour_map.get(model_name, mlflow.sklearn)
     
@@ -156,10 +155,10 @@ def parent_logging(
     # Log config.yaml
     mlflow.log_artifact(local_path=str(config_dir/"config.yaml"), artifact_path="config")
 
+    from ev_load_fc.training.prophet_api import get_prophet_regressor_cols
+
     if model_name == "Prophet":
-        cal = calender()
-        holidays = cal.holidays(start=train.index.min(), end=train.index.max(), return_name=True)
-        holidays_df = holidays.reset_index().rename(columns={'index':'ds', 0:'holiday'})
+        holidays_df = get_holidays(train.index.min(), train.index.max())
     else:
         holidays_df = None
 
@@ -177,7 +176,11 @@ def parent_logging(
     )
     # Fit
     if model_name == "Prophet":
-        model = model.fit(prophet_df_format(y_train))
+        regressor_cols = get_prophet_regressor_cols(list(X_train.columns), CFG)
+        for col in regressor_cols:
+            model.add_regressor(col)
+        regressors_df = X_train[regressor_cols] if regressor_cols else None
+        model = model.fit(prophet_df_format(y_train, regressors_df))
     else:
         model = model.fit(X_train, y_train)
     # Log best fitted model

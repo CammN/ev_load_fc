@@ -42,7 +42,6 @@ def build_pipeline_params(
         "inference_start": resolved_start,
         # CI settings
         "confidence_intervals": inf["confidence_intervals"],
-        "n_bootstrap": inf["n_bootstrap"],
     }
 
 

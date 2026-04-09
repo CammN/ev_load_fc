@@ -7,12 +7,17 @@ from dataclasses import dataclass
 from scipy import stats
 from ev_load_fc.data.loading import col_standardisation
 from ev_load_fc.training.mlflow_api import init_mlflow, get_best_model
-from ev_load_fc.inference.inference import HOLIDAYS, recursive_forecast
+from prophet import Prophet
+from ev_load_fc.inference.inference import HOLIDAYS, recursive_forecast, prophet_forecast
 from ev_load_fc.features.feature_creation import flatten_nested_dict
 from ev_load_fc.config import CFG
 
 import logging
 logger = logging.getLogger(__name__)
+
+
+def _norm(s: str) -> str:
+    return s.lower().replace(" ", "_").replace("'", "").replace("-", "_")
 
 
 @dataclass
@@ -32,7 +37,6 @@ class InferencePipelineConfig:
     inference_start: pd.Timestamp
     # Confidence interval settings
     confidence_intervals: list  # e.g. [0.80, 0.95]
-    n_bootstrap: int            # Number of bootstrap samples for gradient boosting CI
 
 
 class InferencePipeline:
@@ -133,7 +137,7 @@ class InferencePipeline:
 
     def _get_model_features(self) -> list:
         """Return the feature names the model was trained on."""
-        if hasattr(self.model, "feature_names_in_"):        # sklearn / RF / AdaBoost
+        if hasattr(self.model, "feature_names_in_"):        # sklearn / RF
             return list(self.model.feature_names_in_)
         if hasattr(self.model, "feature_name_"):            # LightGBM sklearn API
             return list(self.model.feature_name_)
@@ -146,77 +150,80 @@ class InferencePipeline:
         logger.warning("Could not determine training features from model; using all X columns.")
         return list(self.X.columns)
 
-    def _rf_std(self, X_forecast: pd.DataFrame) -> np.ndarray:
-        """Std of individual tree predictions for RF / AdaBoost."""
+    def _rf_ci(self, X_forecast: pd.DataFrame) -> pd.DataFrame:
+        """Prediction intervals for Random Forest via individual tree variance.
+
+        Each tree in the forest is an independent bootstrap estimator, so the
+        spread of tree predictions is a valid measure of epistemic uncertainty.
+        Intervals: yhat ± z * std(tree_predictions).
+        """
         tree_preds = np.array([est.predict(X_forecast) for est in self.model.estimators_])
-        return np.std(tree_preds, axis=0)
+        std = np.std(tree_preds, axis=0)
 
-    def _xgb_std(self, X_forecast: pd.DataFrame) -> np.ndarray:
-        """Std via MC-dropout for XGBoost dart booster, or tree-subset sampling for gbtree."""
-        import xgboost as xgb
-        booster = self.model.get_booster()
-        dm = xgb.DMatrix(X_forecast)
+        ci_df = pd.DataFrame(index=X_forecast.index)
+        for level in self.cfg.confidence_intervals:
+            z = stats.norm.ppf((1 + level) / 2)
+            label = int(level * 100)
+            ci_df[f"yhat_lower_{label}"] = -z * std
+            ci_df[f"yhat_upper_{label}"] = z * std
+        return ci_df
 
-        # Check booster type from model params
-        booster_type = self.model.get_params().get("booster", "gbtree")
+    def _build_conformal_ci_df(self, residuals: np.ndarray, index) -> pd.DataFrame:
+        """Build a CI DataFrame from absolute residuals using empirical quantiles.
 
-        if booster_type == "dart":
-            # training=True activates random tree dropout, giving stochastic predictions
-            preds = np.array([booster.predict(dm, training=True) for _ in range(self.cfg.n_bootstrap)])
-        else:
-            n_trees = booster.num_boosted_rounds()
-            half = max(1, n_trees // 2)
-            preds = np.array([
-                booster.predict(dm, iteration_range=(0, np.random.randint(half, n_trees + 1)))
-                for _ in range(self.cfg.n_bootstrap)
-            ])
+        Uses finite-sample correction (1 + 1/n) so marginal coverage ≥ nominal level.
+        """
+        n = len(residuals)
+        ci_df = pd.DataFrame(index=index)
+        for level in self.cfg.confidence_intervals:
+            q_level = min((1 + 1 / n) * level, 1.0)
+            q = float(np.quantile(residuals, q_level, method="higher"))
+            label = int(level * 100)
+            ci_df[f"yhat_lower_{label}"] = -q
+            ci_df[f"yhat_upper_{label}"] = q
+            logger.info(f"Conformal {label}% CI half-width: {q:.3f} kWh (n_cal={n})")
+        return ci_df
 
-        return np.std(preds, axis=0)
+    def _conformal_ci(self, X_forecast: pd.DataFrame) -> pd.DataFrame:
+        """Split conformal prediction intervals using training residuals.
 
-    def _lgbm_std(self, X_forecast: pd.DataFrame) -> np.ndarray:
-        """Std via random tree-subset sampling for LightGBM."""
-        # n_estimators_ is the actual number of fitted trees
-        n_trees = getattr(self.model, "n_estimators_", self.model.n_estimators)
-        half = max(1, n_trees // 2)
-        preds = np.array([
-            self.model.predict(X_forecast, num_iteration=np.random.randint(half, n_trees + 1))
-            for _ in range(self.cfg.n_bootstrap)
-        ])
-        return np.std(preds, axis=0)
+        Loads the training feature set, computes absolute residuals with the
+        current model, then uses empirical quantiles (with finite-sample
+        correction) as symmetric CI half-widths. Provides a marginal coverage
+        guarantee under exchangeability — the intervals reflect actual forecast
+        error magnitude rather than model convergence noise.
+        """
+        target = CFG["features"]["target"]
+        train_path = self.cfg.feature_store / f"train_{self._resolved_feature_version}.csv"
+        if not train_path.exists():
+            logger.warning(f"Training data not found at {train_path}; skipping CI.")
+            return pd.DataFrame(index=X_forecast.index)
 
-    def _catboost_std(self, X_forecast: pd.DataFrame) -> np.ndarray:
-        """Std via random tree-subset sampling for CatBoost."""
-        n_trees = self.model.tree_count_
-        half = max(1, n_trees // 2)
-        preds = np.array([
-            self.model.predict(X_forecast, ntree_end=np.random.randint(half, n_trees + 1))
-            for _ in range(self.cfg.n_bootstrap)
-        ])
-        return np.std(preds, axis=0)
+        train_df = pd.read_csv(train_path, parse_dates=["timestamp"], index_col="timestamp")
+        training_features = self._get_model_features()
+
+        missing = [f for f in training_features if f not in train_df.columns]
+        if missing:
+            logger.warning(f"{len(missing)} training features missing from train file; skipping CI.")
+            return pd.DataFrame(index=X_forecast.index)
+
+        X_cal = train_df[training_features]
+        y_cal = train_df[target].values
+        residuals = np.abs(y_cal - self.model.predict(X_cal))
+        return self._build_conformal_ci_df(residuals, X_forecast.index)
 
     def _compute_ci(self, X_forecast: pd.DataFrame) -> pd.DataFrame:
-        """Compute CI bounds for each forecast step using ensemble variance.
+        """Compute prediction interval bounds for each forecast step.
 
-        Dispatches to the appropriate method based on model type:
-        - RF / AdaBoost : variance of individual tree predictions
-        - XGBoost (dart): MC-dropout via predict(training=True)
-        - XGBoost (other): random tree-subset sampling
-        - LightGBM       : random tree-subset sampling
-        - CatBoost       : random tree-subset sampling
+        Strategy by model type:
+        - RandomForest   : variance of individual tree predictions (valid epistemic uncertainty)
+        - LightGBM       : split conformal using training residuals (marginal coverage guarantee)
+        - XGBoost        : split conformal using training residuals (marginal coverage guarantee)
+        - CatBoost       : split conformal using training residuals (marginal coverage guarantee)
 
         Returns a DataFrame with columns yhat_lower_X and yhat_upper_X for each CI level.
         """
         training_features = self._get_model_features()
-
-        holiday_features = {feat for feat in training_features if
-                            feat[:3] in [h[:3] for h in HOLIDAYS]}
-
-        # Normalise X_forecast column names to match model training names.
-        # col_standardisation lowercases everything, but models may have been trained
-        # with title-case holiday column names (e.g. "Independence_Day").
-        # Build a case-insensitive mapping: normalised_col → model_feature_name.
-        def _norm(s: str) -> str:
-            return s.lower().replace(" ", "_").replace("'", "").replace("-", "_")
 
         norm_to_model = {_norm(f): f for f in training_features}
         col_remap = {
@@ -231,31 +238,60 @@ class InferencePipeline:
 
         model_type = type(self.model).__name__
 
-        if hasattr(self.model, "estimators_"):
-            # RandomForestRegressor, AdaBoostRegressor
-            logger.info("Computing CI via individual estimator variance (RF/AdaBoost)")
-            std = self._rf_std(X_forecast)
-        elif "XGB" in model_type:
-            logger.info(f"Computing CI via XGBoost ensemble sampling (n_bootstrap={self.cfg.n_bootstrap})")
-            std = self._xgb_std(X_forecast)
-        elif "LGBM" in model_type or "LightGBM" in model_type:
-            logger.info(f"Computing CI via LightGBM sub-ensemble sampling (n_bootstrap={self.cfg.n_bootstrap})")
-            std = self._lgbm_std(X_forecast)
-        elif "CatBoost" in model_type:
-            logger.info(f"Computing CI via CatBoost sub-ensemble sampling (n_bootstrap={self.cfg.n_bootstrap})")
-            std = self._catboost_std(X_forecast)
+        if "RandomForest" in model_type:
+            logger.info("Computing CI via individual tree variance (Random Forest)")
+            return self._rf_ci(X_forecast)
+        elif "XGB" in model_type or "LGBM" in model_type or "LightGBM" in model_type or "CatBoost" in model_type:
+            logger.info(f"Computing CI via split conformal (training residuals) for {model_type}")
+            return self._conformal_ci(X_forecast)
         else:
             logger.warning(f"CI not supported for model type '{model_type}'. Skipping.")
             return pd.DataFrame(index=X_forecast.index)
 
-        ci_df = pd.DataFrame(index=X_forecast.index)
-        for level in self.cfg.confidence_intervals:
-            z = stats.norm.ppf((1 + level) / 2)
-            label = int(level * 100)
-            ci_df[f"yhat_lower_{label}"] = -z * std
-            ci_df[f"yhat_upper_{label}"] = z * std
+    def _conformal_ci_prophet(self, fc_df: pd.DataFrame) -> pd.DataFrame:
+        """Split conformal CI for Prophet using training residuals.
 
-        return ci_df
+        Prophet has no feature matrix, so residuals are computed by re-predicting
+        over the training period and comparing against the known target values.
+        If the model was trained with external regressors, those values are pulled
+        from self.X for the training timestamps.
+        """
+        target = CFG["features"]["target"]
+        split_date = pd.Timestamp(CFG["data"]["preprocessing"]["split_date"])
+        train_actuals = self.raw_hourly.loc[self.raw_hourly.index < split_date, target]
+
+        if train_actuals.empty:
+            logger.warning("No training actuals available for Prophet conformal CI; skipping.")
+            return pd.DataFrame(index=fc_df.index)
+
+        train_future = pd.DataFrame({"ds": train_actuals.index})
+
+        # Include regressor columns if the model was trained with them
+        regressor_cols = list(self.model.extra_regressors.keys())
+        if regressor_cols:
+            train_timestamps = train_actuals.index
+            missing = [c for c in regressor_cols if c not in self.X.columns]
+            if missing:
+                logger.warning(
+                    f"self.X is missing {len(missing)} regressor column(s) needed for "
+                    f"conformal CI re-prediction: {missing}. Skipping CI."
+                )
+                return pd.DataFrame(index=fc_df.index)
+            x_missing_ts = [t for t in train_timestamps if t not in self.X.index]
+            if x_missing_ts:
+                logger.warning(
+                    f"self.X is missing {len(x_missing_ts)} training timestamps; "
+                    f"conformal CI residuals may be incomplete."
+                )
+                return pd.DataFrame(index=fc_df.index)
+            reg_vals = self.X.loc[train_timestamps, regressor_cols].reset_index(drop=True)
+            train_future = pd.concat(
+                [train_future.reset_index(drop=True), reg_vals], axis=1
+            )
+
+        train_preds = self.model.predict(train_future)
+        residuals = np.abs(train_actuals.values - train_preds["yhat"].values)
+        return self._build_conformal_ci_df(residuals, range(len(fc_df)))
 
     # ------------------------------------------------------------------
     # Output
@@ -299,6 +335,7 @@ class InferencePipeline:
         # Save metadata JSON
         metadata = {
             "run_id": run_id,
+            "experiment_name": self.cfg.experiment_name,
             "model_family": model_family,
             "feature_version": getattr(self, "_resolved_feature_version", self.cfg.feature_version),
             "horizon": self.cfg.horizon,
@@ -363,18 +400,32 @@ class InferencePipeline:
             f"Running recursive forecast: start={self.cfg.inference_start}, horizon={self.cfg.horizon}"
         )
 
-        fc_df = recursive_forecast(
-            fitted_model=self.model,
-            raw_hourly=self.raw_hourly,
-            X=self.X,
-            horizon=self.cfg.horizon,
-            forecast_start=self.cfg.inference_start,
-        )
+        if isinstance(self.model, Prophet):
+            logger.info("Prophet model detected — using single-shot prophet_forecast")
+            fc_df = prophet_forecast(
+                fitted_model=self.model,
+                raw_hourly=self.raw_hourly,
+                forecast_start=self.cfg.inference_start,
+                horizon=self.cfg.horizon,
+                X=self.X,
+            )
+            X_forecast = None
+        else:
+            fc_df = recursive_forecast(
+                fitted_model=self.model,
+                raw_hourly=self.raw_hourly,
+                X=self.X,
+                horizon=self.cfg.horizon,
+                forecast_start=self.cfg.inference_start,
+            )
+            X_forecast = self.X.loc[fc_df["timestamp"]]
+            X_forecast = col_standardisation(X_forecast)
 
-        # Compute confidence intervals using the precomputed X features at forecast steps
-        X_forecast = self.X.loc[fc_df["timestamp"]]
-        X_forecast = col_standardisation(X_forecast)
-        ci_df = self._compute_ci(X_forecast)
+        # Compute confidence intervals
+        if X_forecast is not None:
+            ci_df = self._compute_ci(X_forecast)
+        else:
+            ci_df = self._conformal_ci_prophet(fc_df)
 
         # Attach CI columns — ci_df stores signed offsets: lower=-z*std, upper=+z*std
         for col in ci_df.columns:

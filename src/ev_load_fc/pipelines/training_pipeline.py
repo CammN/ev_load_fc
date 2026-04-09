@@ -71,13 +71,13 @@ class TrainingPipeline:
             next_run_number = 1
         run_name = f"{model_name} run {next_run_number}"
 
-        logger.info(f"Beginning MLFlow run with metric {self.cfg.metric}: {run_name}")
+        logger.info(f"Beginning MLFlow run '{run_name}' - minimising loss metric {self.cfg.metric.upper()} over {self.cfg.trials} trials")
 
         # Initiate the parent run and call the hyperparameter tuning child run logic
         with mlflow.start_run(
             experiment_id=experiment_id,
             run_name=run_name,
-            description=f"Parent run {next_run_number} of {model_name} in experiment {experiment_id}",
+            description=f"Parent run {next_run_number} of {model_name} in experiment {self.cfg.experiment_name}",
         ) as parent_run:
 
             # Log tags

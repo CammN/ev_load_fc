@@ -4,10 +4,15 @@ import mlflow
 from optuna.trial import Trial, FrozenTrial
 from optuna.study import Study
 from sklearn.model_selection import TimeSeriesSplit, cross_validate
-from pandas.tseries.holiday import USFederalHolidayCalendar as calender
+from ev_load_fc.features.feature_creation import get_holidays
 from ev_load_fc.training.registry import build_model
 from ev_load_fc.training.mlflow_api import _log_model_flavour
-from ev_load_fc.training.prophet_api import prophet_df_format, cv_score_prophet_model
+from ev_load_fc.training.prophet_api import (
+    prophet_df_format,
+    cv_score_prophet_model,
+    get_prophet_regressor_cols,
+)
+from ev_load_fc.config import CFG
 import logging
 logger = logging.getLogger(__name__)
 
@@ -40,10 +45,10 @@ def objective(
     Returns:
         float: Mean cross-validated score for the model with the given hyperparameters
     """
-    
+
     with mlflow.start_run(
-        nested=True, 
-        experiment_id=experiment_id, 
+        nested=True,
+        experiment_id=experiment_id,
         run_name=f"{parent_run_name} - trial {trial.number}",
         parent_run_id=parent_run_id,
         description=f"Child run {trial.number} for {parent_run_id}",
@@ -77,26 +82,43 @@ def objective(
             # Categorical values
             elif (not isinstance(range[0], float) and not isinstance(range[0], int)) or (not isinstance(range[-1], float) and not isinstance(range[-1], int)):
                 params[param] = trial.suggest_categorical(param, choices=range)
-            
+
         if model_name == "Prophet":
-            cal = calender()
-            holidays = cal.holidays(start=train.index.min(), end=train.index.max(), return_name=True)
-            holidays_df = holidays.reset_index().rename(columns={'index':'ds', 0:'holiday'})
+            holidays_df = get_holidays(train.index.min(), train.index.max())
         else:
             holidays_df = None
 
         # Select the estimator
         est = build_model(model_name=model_name, params=params, holidays_df=holidays_df)
-        
+
         X = train.drop(columns=[target])
         y = train[target]
+
+        # Prophet: register external regressors (weather, temperature, traffic only)
+        if model_name == "Prophet":
+            regressor_cols = get_prophet_regressor_cols(list(X.columns), CFG)
+            for col in regressor_cols:
+                est.add_regressor(col)
+            regressors_df = X[regressor_cols] if regressor_cols else None
+
+            # Factory to create a fresh model per CV fold
+            def _prophet_factory(p=params, h=holidays_df, rc=regressor_cols):
+                m = build_model(model_name="Prophet", params=p, holidays_df=h)
+                for col in rc:
+                    m.add_regressor(col)
+                return m
+        else:
+            regressors_df = None
+            _prophet_factory = None
 
         # Train and score model using cross validation
         if model_name == 'Prophet':
             scores = cv_score_prophet_model(
                 model=est,
                 y=y,
-                n_splits=n_splits
+                n_splits=n_splits,
+                regressors_df=regressors_df,
+                model_factory=_prophet_factory,
             )
             mean_rmse = scores["rmse"]
             mean_mae = scores["mae"]
@@ -129,10 +151,11 @@ def objective(
         mlflow.log_metric("mae", mean_mae)
 
         # Refit on full training data and persist model artifact
-        est_final = build_model(model_name=model_name, params=params, holidays_df=holidays_df)
         if model_name == "Prophet":
-            est_final.fit(prophet_df_format(y))
+            est_final = _prophet_factory()
+            est_final.fit(prophet_df_format(y, regressors_df))
         else:
+            est_final = build_model(model_name=model_name, params=params, holidays_df=holidays_df)
             est_final.fit(X, y)
         flavour = _log_model_flavour(model_name)
         flavour.log_model(est_final, name="model")
@@ -150,7 +173,7 @@ def champion_callback(study:Study, frozen_trial:FrozenTrial):
         study (optuna.study.Study): The Optuna study object.
         frozen_trial (optuna.trial.FrozenTrial): The trial that was just completed.
     """
-    
+
     # Extract current winner of study
     winner = study.user_attrs.get("winner", None)
 

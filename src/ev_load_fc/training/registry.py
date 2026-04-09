@@ -5,10 +5,6 @@ def get_random_forest():
     from sklearn.ensemble import RandomForestRegressor
     return RandomForestRegressor
 
-def get_adaboost():
-    from sklearn.ensemble import AdaBoostRegressor
-    return AdaBoostRegressor
-
 def get_xgboost():
     from xgboost import XGBRegressor
     return XGBRegressor
@@ -28,7 +24,6 @@ def get_prophet():
 
 MODEL_REGISTRY = {
     "Random Forest": get_random_forest,
-    "AdaBoost": get_adaboost,
     "XGBoost": get_xgboost,
     "LightGBM": get_lightgbm,
     "CatBoost": get_catboost,

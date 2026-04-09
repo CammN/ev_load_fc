@@ -5,10 +5,11 @@ from statsmodels.tsa.statespace.sarimax import SARIMAXResults
 from prophet import Prophet
 from ev_load_fc.config import CFG, PROJECT_ROOT
 from ev_load_fc.features.feature_creation import (
-    lag_features, 
+    lag_features,
     rolling_window_features,
     flatten_nested_dict,
 )
+from ev_load_fc.data.loading import col_standardisation
 from typing import Union, List
 
 HOLIDAYS = list(CFG["features"]["feature_engineering"]["holidays"])
@@ -61,6 +62,62 @@ def get_feature_set(fitted_model) -> List[str]:
     
     return feature_set
 
+def prophet_forecast(
+        fitted_model: Prophet,
+        raw_hourly: pd.DataFrame,
+        forecast_start: pd.Timestamp,
+        horizon: int,
+        X: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Single-shot forecast using a fitted Prophet model.
+
+    If the model was trained with external regressors (via add_regressor()),
+    X must be provided and must contain all regressor columns for the forecast
+    period.
+
+    Args:
+        fitted_model: A fitted Prophet instance.
+        raw_hourly: Historical data with DatetimeIndex and 'energy' column (for actuals).
+        forecast_start: Timestamp of first forecast step.
+        horizon: Number of hourly steps to forecast.
+        X: Optional pre-computed feature DataFrame (DatetimeIndex). Required when
+            the model has external regressors. Must cover all forecast timestamps.
+
+    Returns:
+        DataFrame with columns: timestamp, yhat, y.
+
+    Raises:
+        ValueError: If the model has external regressors but X is not provided,
+            or if X is missing required regressor columns.
+        KeyError: If forecast timestamps extend beyond the index of X.
+    """
+    forecast_dates = pd.date_range(forecast_start, periods=horizon, freq="h")
+    future = pd.DataFrame({"ds": forecast_dates})
+
+    regressor_cols = list(fitted_model.extra_regressors.keys())
+    if regressor_cols:
+        if X is None:
+            raise ValueError(
+                f"Prophet model has {len(regressor_cols)} external regressor(s) "
+                f"({regressor_cols}) but X was not provided to prophet_forecast()."
+            )
+        missing = [c for c in regressor_cols if c not in X.columns]
+        if missing:
+            raise ValueError(
+                f"X is missing the following regressor column(s) required by the model: {missing}"
+            )
+        reg_vals = X.loc[forecast_dates, regressor_cols].reset_index(drop=True)
+        future = pd.concat([future, reg_vals], axis=1)
+
+    preds = fitted_model.predict(future)
+    fc_df = pd.DataFrame({
+        "timestamp": preds["ds"].values,
+        "yhat": preds["yhat"].values,
+    })
+    fc_df["y"] = raw_hourly.loc[fc_df["timestamp"].values, "energy"].values
+    return fc_df
+
+
 def recursive_forecast(
         fitted_model,
         raw_hourly:pd.DataFrame,
@@ -90,7 +147,9 @@ def recursive_forecast(
 
     feature_set  = get_feature_set(fitted_model)
     feature_set  = [str(feat) for feat in feature_set if str(feat) in X.columns and str(feat) != 'energy'] # restrict to features we have precomputed in X, and exclude energy column itself as this is what we will be updating in our rolling data
-    feature_set += HOLIDAYS
+    _hol_df = col_standardisation(pd.DataFrame(columns=HOLIDAYS))
+    standardised_holidays = list(_hol_df.columns)
+    feature_set += [h for h in standardised_holidays if h not in feature_set]
     energy_feature_set = [feat for feat in feature_set if "energy" in feat]
     raw_energy_cols = [feat for feat in raw_hourly.columns if "energy" in feat]
 
@@ -162,6 +221,9 @@ def recursive_forecast(
         t_future = np.arange(len(raw_hourly), len(raw_hourly) + horizon)
         trend_future = slope * t_future + intercept
         fc_series += trend_future
+    # Exponentiate if model was trained on log-transformed data
+    elif CFG["features"]["log_transform"]:
+        fc_series = np.exp(fc_series) - 1
 
     fc_df = pd.DataFrame({'timestamp': fc_series.index, 'yhat': fc_series.values})
     fc_df['y'] = raw_hourly.loc[fc_df['timestamp'], 'energy'].values

@@ -32,7 +32,7 @@ def build_pipeline_params(exp_name:str|None=None, model_names:List[str]|None=Non
         # Miscellaneous
         "seed": CFG["project"]["seed"],
         "target": CFG["features"]["target"],
-        "feature_version": CFG["training"]["feature_version"]
+        "feature_version": CFG["training"]["feature_version"],
     }
 
 
