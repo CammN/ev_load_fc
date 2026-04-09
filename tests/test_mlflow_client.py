@@ -16,8 +16,8 @@ from utils.mlflow_client import (
 
 class TestAllModelFamilies:
 
-    def test_contains_all_six_families(self):
-        expected = {"Random Forest", "AdaBoost", "XGBoost", "LightGBM", "CatBoost", "Prophet"}
+    def test_contains_all_families(self):
+        expected = {"Random Forest", "XGBoost", "LightGBM", "CatBoost", "Prophet"}
         assert expected == set(ALL_MODEL_FAMILIES)
 
     def test_is_list(self):

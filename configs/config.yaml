@@ -27,21 +27,21 @@ files:
   weather_filename: "WeatherEvents_Aug16_Dec20_Publish.csv"
   traffic_filename: "TrafficEvents_Aug16_Dec20_Publish.csv"
   # Interim
-  ev_filt_filename: "ev_data_filt_date.csv"
-  weather_filt_filename: "weather_data_filt_date_city.csv"
-  temperature_filename: "temperature.csv"
-  traffic_filt_filename: "traffic_data_filt_date_city.csv"
+  ev_filt_filename: "ev_data_filt_date_full.csv"
+  weather_filt_filename: "weather_data_filt_date_city_full.csv"
+  temperature_filename: "temperature_full.csv"
+  traffic_filt_filename: "traffic_data_filt_date_city_full.csv"
   # Processed
-  ev_proc_filename: "ev_processed.csv"
-  weather_proc_filename: "weather_processed.csv"
-  temperature_proc_filename: "temperature_processed.csv"
-  traffic_proc_filename: "traffic_processed.csv"
-  combined_filename: "combined_processed.csv"
+  ev_proc_filename: "ev_processed_full.csv"
+  weather_proc_filename: "weather_processed_full.csv"
+  temperature_proc_filename: "temperature_processed_full.csv"
+  traffic_proc_filename: "traffic_processed_full.csv"
+  combined_filename: "combined_processed_full.csv"
   # Features
-  X_set: X_detrend
-  y_set: y_detrend
-  train: train_detrend
-  test: test_detrend
+  X_set: X_full
+  y_set: y_full
+  train: train
+  test: test
   
 
 data:
@@ -49,8 +49,8 @@ data:
   # Filters to apply to raw datasets when importing
   raw_filters:
     # Define the time period our data will be contained in
-    min_timestamp: "2017-08-01"       
-    max_timestamp: "2020-02-01" 
+    min_timestamp: "2016-08-01"       
+    max_timestamp: "2021-01-01" 
     # Cities to filter the raw LSTW weather data by        
     weather_cities:
       - "Palo Alto"
@@ -78,7 +78,7 @@ data:
     plug_power_quantile_bound: 0.001 # Decimal value defining what upper and lower quantiles (as cutoffs) to define for estimated plug charging power in the EV datasets 
                                      # e.g. 0.001 means we restrict the EV dataset to be between the 0.1% and 99.9% quantiles for plug power
     mad_thresholds: 3.5
-    split_date: "2019-08-01" # Cutoff date between train and test samples
+    split_date: "2020-02-01" # Cutoff date between train and test samples
     min_outlier_samples: 720 # When computing parameters to detect outliers using a rolling MAD method, 
                              # This value defines from which point we will start detecting outliers in the train set (see ev_load_fc.data.preprocessing.rolling_mad_outliers) 
     # Columns of the raw EV dataset necessary for preprocessing
@@ -121,7 +121,10 @@ features:
 
   # Target column
   target: 'energy'
-  detrend: True
+
+
+  detrend: False
+  log_transform: False
 
   # Parameters for the creation of exogenous features
   feature_engineering:
@@ -152,8 +155,8 @@ features:
 
   # Feature selection to create training set
   feature_selection:
-    weather: False
-    traffic: False
+    weather: True
+    traffic: True
     scale_method: ""
     k_1: 30            # Number of features to select in first round of feature elimination
     fe_method_1: "f"   # Method to select K best features from X_train - 'f', 'mi', 'imp', 'rfe', 'rfecv'
@@ -165,17 +168,18 @@ features:
   
 training:
 
-  feature_version: "E_f_30_rfe_20" # Select version of data based on feature selection method
-                                 # Use format "{fe_method_1}_{k_1}_{fe_method_2}_{k_2}"
+  feature_version: "full_EWT_f_30_rfe_20" # Select version of data, i.e. remainder of train/test file names
+                                   # For example test_full_EWT_f_30_rfe_20 -> full_EWT_f_30_rfe_20
+                                   # This mean we used the "full" suffix, all 3 datasets and used f score and recursive feature elimination for feature selection 
 
   mlflow:
-    experiment_name: "Detrend Base Period"
+    experiment_name: "Full Period"
 
   optuna:
     verbosity: 30 # 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL
     models_to_run: ["Prophet"] # List of models to train using Optuna studies
                                      # Choose from: "Random Forest" "AdaBoost" "XGBoost" "LightGBM" "CatBoost" "Prophet"
-    trials: 2 # How man5y trials each Optuna study should have 
+    trials: 5 # How man5y trials each Optuna study should have 
     metric: "rmse" # Evaluation metric used in Optuna trials, choose from: "rmse", "mae"
     splits: 4 # Number of splits for time series cross-validation
 
@@ -282,19 +286,18 @@ training:
 inference:
 
   # Data sources
-  raw_hourly: "datasets/03_processed/combined_processed.csv"
-  X_set: "X_detrend"           # Prefix of the X feature CSV in the feature store
+  raw_hourly: "datasets/03_processed/combined_processed_full.csv"
+  X_set: "X_full"           # Prefix of the X feature CSV in the feature store
 
   # MLflow model selection
-  experiment_name: "Test"
-  model_family: ""             # Optional tag filter: e.g. "XGBoost", "CatBoost". Empty = no filter.
+  experiment_name: "Full Period"
+  model_family: "Prophet"             # Optional tag filter: e.g. "XGBoost", "CatBoost". Empty = no filter.
   feature_version: ""          # Optional tag filter: e.g. "E_f_30_rfe_20". Empty = no filter.
   metric: "rmse"               # Required: rank runs by "best_rmse" or "best_mae". Choose from: "rmse", "mae".
 
   # Forecast settings
   horizon: 168                 # Number of steps (hours) to forecast
-  inference_start: "2019-10-01 00:00:00"  # Timestamp of first forecast step
+  inference_start: "2020-02-01 00:00:00"  # Timestamp of first forecast step
 
   # Confidence intervals
   confidence_intervals: [0.80, 0.95]  # CI levels to compute, e.g. 0.80 → yhat_lower_80 / yhat_upper_80
-  n_bootstrap: 50              # Bootstrap samples for gradient boosting CI (XGBoost/LightGBM/CatBoost)

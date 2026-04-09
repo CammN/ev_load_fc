@@ -36,7 +36,7 @@ class TestBuildPipelineParams:
 
     def test_path_fields_are_pathlib_Path(self):
         params = training.build_pipeline_params()
-        for key in ("feature_store", "configs", "images"):
+        for key in ("feature_store", "configs"):
             assert isinstance(params[key], pathlib.Path), f"{key} is not a pathlib.Path"
 
     def test_trials_is_integer(self):
@@ -114,4 +114,3 @@ class TestMain:
         cfg = _run_main_capture_config(["training.py"])
         assert isinstance(cfg.feature_store, pathlib.Path)
         assert isinstance(cfg.configs, pathlib.Path)
-        assert isinstance(cfg.images, pathlib.Path)

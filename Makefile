@@ -101,7 +101,7 @@ coverage:
 	@echo "Coverage target is disabled because no automated pytest suites are configured."
 
 
-test-all: test-scripts
+test-all:
 	$(PYRUN) pytest tests/ -v
 
 test-module:

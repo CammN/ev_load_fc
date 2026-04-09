@@ -28,7 +28,6 @@ def _make_cfg(tmp_path, model_family="XGBoost", feature_version="E_f_30_rfe_20",
         horizon=24,
         inference_start=pd.Timestamp("2019-10-01 00:00:00"),
         confidence_intervals=[0.80, 0.95],
-        n_bootstrap=10,
     )
 
 
@@ -51,7 +50,7 @@ def _make_dummy_X(n=24):
 
 
 # Lightweight stand-in classes so hasattr checks work without MagicMock auto-creation
-class _MockRF:
+class _MockRandomForestRegressor:
     """Minimal RandomForest-like object with estimators_ attribute."""
     _FEATURE_COLS = [f"feat_{i}" for i in range(5)]
 
@@ -131,18 +130,18 @@ class TestBuildFilterString:
 class TestComputeCiRandomForest:
 
     def test_ci_columns_present(self, pipeline):
-        pipeline.model = _MockRF()
+        pipeline.model = _MockRandomForestRegressor()
         ci_df = pipeline._compute_ci(_make_dummy_X())
         assert set(ci_df.columns) == {"yhat_lower_80", "yhat_upper_80", "yhat_lower_95", "yhat_upper_95"}
 
     def test_lower_less_than_upper(self, pipeline):
-        pipeline.model = _MockRF()
+        pipeline.model = _MockRandomForestRegressor()
         ci_df = pipeline._compute_ci(_make_dummy_X())
         assert (ci_df["yhat_lower_80"] < ci_df["yhat_upper_80"]).all()
         assert (ci_df["yhat_lower_95"] < ci_df["yhat_upper_95"]).all()
 
     def test_95_wider_than_80(self, pipeline):
-        pipeline.model = _MockRF()
+        pipeline.model = _MockRandomForestRegressor()
         ci_df = pipeline._compute_ci(_make_dummy_X())
         width_80 = ci_df["yhat_upper_80"] - ci_df["yhat_lower_80"]
         width_95 = ci_df["yhat_upper_95"] - ci_df["yhat_lower_95"]
@@ -150,7 +149,7 @@ class TestComputeCiRandomForest:
 
     def test_symmetric_offsets_around_zero(self, pipeline):
         """CI offsets should be symmetric: lower = -upper (Gaussian assumption)."""
-        pipeline.model = _MockRF()
+        pipeline.model = _MockRandomForestRegressor()
         ci_df = pipeline._compute_ci(_make_dummy_X())
         np.testing.assert_allclose(
             ci_df["yhat_lower_80"].values,
@@ -162,7 +161,7 @@ class TestComputeCiRandomForest:
         cfg = _make_cfg(tmp_path)
         cfg.confidence_intervals = [0.90]
         p = InferencePipeline(config=cfg)
-        p.model = _MockRF()
+        p.model = _MockRandomForestRegressor()
         ci_df = p._compute_ci(_make_dummy_X())
         assert "yhat_lower_90" in ci_df.columns
         assert "yhat_upper_90" in ci_df.columns
@@ -170,13 +169,13 @@ class TestComputeCiRandomForest:
 
     def test_correct_row_count(self, pipeline):
         n = 48
-        pipeline.model = _MockRF(n_steps=n)
+        pipeline.model = _MockRandomForestRegressor(n_steps=n)
         ci_df = pipeline._compute_ci(_make_dummy_X(n))
         assert len(ci_df) == n
 
     def test_uniform_estimators_give_zero_std(self, pipeline):
         """If all tree predictions are identical, std=0 → CI width=0."""
-        model = _MockRF()
+        model = _MockRandomForestRegressor()
         constant = np.full(24, 5.0)
         for est in model.estimators_:
             est.predict = MagicMock(return_value=constant.copy())
@@ -253,7 +252,7 @@ class TestSavePredictions:
         out_path = pipeline._save_predictions(_make_dummy_fc_df(), run_id="abc123")
         with open(out_path.parent / "metadata.json") as f:
             meta = json.load(f)
-        required_keys = {"run_id", "model_family", "feature_version", "horizon",
+        required_keys = {"run_id", "experiment_name", "model_family", "feature_version", "horizon",
                          "inference_start", "ci_levels", "metrics", "created_at"}
         assert required_keys == set(meta.keys())
         assert meta["run_id"] == "abc123"
@@ -298,7 +297,7 @@ class TestRunIntegration:
         fc_df = _make_dummy_fc_df(n)
         X_dummy = _make_dummy_X(n)
 
-        mock_rf = _MockRF(n_steps=n)
+        mock_rf = _MockRandomForestRegressor(n_steps=n)
 
         mock_run = pd.Series({
             "run_id": "test_run_id_123",
@@ -338,7 +337,7 @@ class TestRunIntegration:
         n = 24
         fc_df = _make_dummy_fc_df(n)
         X_dummy = _make_dummy_X(n)
-        mock_rf = _MockRF(n_steps=n)
+        mock_rf = _MockRandomForestRegressor(n_steps=n)
         mock_run = pd.Series({
             "run_id": "saved_run_abc",
             "tags.feature_set_version": "E_f_30_rfe_20",
@@ -385,7 +384,7 @@ class TestCIFixInRunOutput:
     def _run_pipeline_with_mock_rf(self, pipeline, tmp_path, n=24):
         fc_df = _make_dummy_fc_df(n)
         X_dummy = _make_dummy_X(n)
-        mock_rf = _MockRF(n_steps=n)
+        mock_rf = _MockRandomForestRegressor(n_steps=n)
         mock_run = pd.Series({
             "run_id": "ci_fix_run",
             "tags.feature_set_version": "E_f_30_rfe_20",

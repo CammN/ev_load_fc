@@ -80,10 +80,9 @@ class TestBuildPipelineParams:
         for ci in params["confidence_intervals"]:
             assert 0 < ci < 1, f"CI level {ci} not in (0, 1)"
 
-    def test_n_bootstrap_is_integer(self):
+    def test_n_bootstrap_not_in_params(self):
         params = inference.build_pipeline_params()
-        assert isinstance(params["n_bootstrap"], int)
-        assert params["n_bootstrap"] > 0
+        assert "n_bootstrap" not in params
 
 
 # ---------------------------------------------------------------------------
