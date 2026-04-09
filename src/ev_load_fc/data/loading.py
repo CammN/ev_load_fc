@@ -1,7 +1,8 @@
 # Packages
 import pandas as pd
 from datetime import datetime
-from meteostat import hourly 
+from meteostat import hourly, config
+config.block_large_requests = False
 import pandas as pd
 import logging
 logger = logging.getLogger(__name__)

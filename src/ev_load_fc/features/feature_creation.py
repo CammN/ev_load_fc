@@ -127,8 +127,10 @@ def ohe_holidays(holiday_subset:list, min_timestamp:datetime, max_timestamp:date
 
     # Create One Hot Encodings for each holiday
     holiday_ohe = pd.get_dummies(hourly_holidays_df.set_index('ds')['holiday'], dtype=int)
+    holiday_ohe = holiday_ohe.groupby(level=0).max()  # collapse duplicate timestamps (e.g. observed holidays overlapping custom ones)
     holiday_hourly = holiday_ohe.reindex(ts.index, fill_value=0)
     holiday_hourly_cut = holiday_hourly[holiday_subset].fillna(0) # subset
+
 
     return holiday_hourly_cut
 

@@ -34,6 +34,7 @@ class FeaturePipelineConfig:
     # Feature creation parameters
     target: str
     detrend: bool
+    log_transform: bool
     holiday_list: list
     time_feature_dict: dict
     energy_col_substrs: list
@@ -99,6 +100,8 @@ class FeaturePipeline:
                     'intercept':intercept}])
                 detrend_params = pd.concat([detrend_params, new_param_row])
                 detrend_params.to_csv(detrend_params_path, index=False)
+        elif self.cfg.log_transform:
+            combined[self.cfg.target] = np.log(combined[self.cfg.target]+1)
 
         # Identify features from each data source
         energy_cols = [col for col in combined.columns if any([s in col for s in self.cfg.energy_col_substrs])]
@@ -196,7 +199,7 @@ class FeaturePipeline:
         logger.debug(f"Number of input features created: {col_counts[counts_done]-col_counts[counts_done-1]}")
 
         # Input & target sets
-        self.X = combined.iloc[max_lag:][features].copy()
+        self.X = col_standardisation(combined.iloc[max_lag:][features].copy())
         self.y = combined.iloc[max_lag:][self.cfg.target].copy()
         logger.debug(f"Shape of input feature set X: {self.X.shape}")
         logger.debug(f"Shape of target feature set y: {self.y.shape}")
