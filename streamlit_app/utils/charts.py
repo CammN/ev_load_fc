@@ -6,8 +6,8 @@ from plotly.subplots import make_subplots
 TRAIN_COLOR = "#4C8BF5"
 FORECAST_COLOR = "#F4511E"
 ACTUAL_COLOR = "#34A853"
-CI_80_COLOR = "rgba(244,81,30,0.15)"
-CI_95_COLOR = "rgba(244,81,30,0.08)"
+CI_80_COLOR = "rgba(244,81,30,0.30)"
+CI_95_COLOR = "rgba(244,81,30,0.18)"
 SPLIT_COLOR = "rgba(255,200,0,0.3)"
 
 

@@ -43,7 +43,7 @@ def _compute_coverage(fc_df: pd.DataFrame, ci_level: int) -> float | None:
     return float(covered.mean())
 
 
-def _run_inference(model_family: str, horizon: int, start_date: datetime.date, ci_levels: list[float]):
+def _run_inference(model_family: str, horizon: int, start_date: datetime.date, ci_levels: list[float], experiment_name: str):
     """Trigger the InferencePipeline and return the forecast DataFrame."""
     from ev_load_fc.pipelines.inference_pipeline import InferencePipeline, InferencePipelineConfig
     from ev_load_fc.training.mlflow_api import init_mlflow
@@ -51,34 +51,28 @@ def _run_inference(model_family: str, horizon: int, start_date: datetime.date, c
     # Map display name to MLflow tag value
     _FAMILY_TAG = {
         "Random Forest": "RandomForest",
-        "AdaBoost": "AdaBoost",
         "XGBoost": "XGBoost",
         "LightGBM": "LightGBM",
         "CatBoost": "CatBoost",
         "Prophet": "Prophet",
     }
 
-    experiment_names = get_experiment_names()
-    if not experiment_names:
-        raise ValueError("No MLflow experiments found. Train a model first.")
-
     inf_cfg = CFG["inference"]
     feature_version = CFG["training"]["feature_version"]
-    X_set = f"test_detrend_{feature_version}"
+    X_set = f"test_{feature_version}"
 
     config = InferencePipelineConfig(
         raw_hourly_path=resolve_path(CFG["paths"]["processed_data"]) / CFG["files"]["combined_filename"],
         feature_store=resolve_path(CFG["paths"]["feature_store"]),
         predictions_dir=resolve_path(CFG["paths"]["predictions"]),
         X_set=X_set,
-        experiment_name=experiment_names[0],
+        experiment_name=experiment_name,
         model_family=_FAMILY_TAG.get(model_family, model_family),
         feature_version=feature_version,
         metric=inf_cfg.get("metric", "rmse"),
         horizon=horizon,
         inference_start=pd.Timestamp(start_date),
         confidence_intervals=inf_cfg.get("confidence_intervals", ci_levels),
-        n_bootstrap=inf_cfg.get("n_bootstrap", 50),
     )
     pipeline = InferencePipeline(config)
     return pipeline.run()
@@ -102,24 +96,19 @@ with tab_view:
     else:
         # Build selectbox labels
         def _label(r: dict) -> str:
+            experiment = r.get("experiment_name", "Unknown Experiment")
             created = r.get("created_at", "")[:16].replace("T", " ")
             family = r.get("model_family", "Unknown")
             horizon = r.get("horizon", "?")
             start = r.get("inference_start", "")[:10]
-            return f"{created}  |  {family}  |  {horizon}h  |  from {start}"
+            return f"{experiment}  |  {created}  |  {family}  |  {horizon}h  |  from {start}"
 
         labels = [_label(r) for r in runs]
         selected_label = st.selectbox("Select forecast run", labels)
         selected_run = runs[labels.index(selected_label)]
 
         # CI level selector
-        ci_options = {
-            "80%": 80,
-            "95%": 95,
-            "Both (80% shown)": 80,
-        }
-        ci_choice = st.radio("Confidence interval", list(ci_options.keys()), horizontal=True)
-        ci_level = ci_options[ci_choice]
+        ci_level = int(st.radio("Confidence interval", ["80%", "95%"], horizontal=True).rstrip("%"))
 
         # Load and display
         fc_df = load_predictions(selected_run["dir_name"])
@@ -136,12 +125,6 @@ with tab_view:
         # Chart
         fig = forecast_chart(fc_df, ci_level=ci_level)
         st.plotly_chart(fig, use_container_width=True)
-
-        # Also show 95% ribbon if "Both" selected
-        if ci_choice == "Both (80% shown)" and "yhat_lower_95" in fc_df.columns:
-            st.caption("95% CI band:")
-            fig_95 = forecast_chart(fc_df, ci_level=95)
-            st.plotly_chart(fig_95, use_container_width=True)
 
         # Download
         csv_bytes = fc_df.to_csv(index=False).encode()
@@ -165,11 +148,19 @@ with tab_run:
         )
         st.stop()
 
-    # Model family selector
+    # Experiment + model family selectors
     experiment_names = get_experiment_names()
-    available_families = get_available_families(experiment_names[0]) if experiment_names else []
 
     st.subheader("Inference Parameters")
+
+    selected_experiment = st.selectbox(
+        "MLflow experiment",
+        experiment_names if experiment_names else ["(none)"],
+        disabled=not experiment_names,
+        help="Select the MLflow experiment to pull the best model from.",
+    )
+
+    available_families = get_available_families(selected_experiment) if experiment_names else []
 
     col_left, col_right = st.columns(2)
 
@@ -186,11 +177,36 @@ with tab_run:
                 f"Available: {', '.join(available_families) or 'none'}."
             )
 
-        horizon = st.select_slider(
-            "Forecast horizon (hours)",
-            options=[24, 48, 72, 168, 720, 2160],
-            value=168,
-        )
+        if "horizon_slider" not in st.session_state:
+            st.session_state["horizon_slider"] = 168
+            st.session_state["horizon_input"] = 168
+
+        def _slider_changed():
+            st.session_state["horizon_input"] = st.session_state["horizon_slider"]
+
+        def _input_changed():
+            st.session_state["horizon_slider"] = st.session_state["horizon_input"]
+
+        h_slider_col, h_input_col = st.columns([4, 1])
+        with h_slider_col:
+            st.slider(
+                "Forecast horizon (hours)",
+                min_value=1,
+                max_value=2160,
+                step=1,
+                key="horizon_slider",
+                on_change=_slider_changed,
+            )
+        with h_input_col:
+            st.number_input(
+                "Hours",
+                min_value=1,
+                max_value=2160,
+                step=1,
+                key="horizon_input",
+                on_change=_input_changed,
+            )
+        horizon = st.session_state["horizon_slider"]
 
     with col_right:
         # Constrain to test set range from config
@@ -202,16 +218,10 @@ with tab_run:
             value=test_start,
             min_value=test_start,
             max_value=data_end,
-            help="Must be within the test period (after the train/test split).",
+            help="Must be within the test period of 1st February 2020 - 31st December 2020.",
         )
 
-        ci_choice_run = st.radio(
-            "Confidence interval level",
-            ["80%", "95%", "Both"],
-            horizontal=True,
-        )
-        ci_map = {"80%": [0.80], "95%": [0.95], "Both": [0.80, 0.95]}
-        ci_levels = ci_map.get(str(ci_choice_run), [0.80, 0.95])
+        ci_levels = [0.80, 0.95]
 
     st.divider()
 
@@ -224,12 +234,11 @@ with tab_run:
     ):
         with st.spinner(f"Running {horizon}h recursive forecast with {selected_family}..."):
             try:
-                fc_df = _run_inference(selected_family, horizon, start_date, ci_levels)
+                fc_df = _run_inference(selected_family, horizon, start_date, ci_levels, selected_experiment)
                 st.success("Forecast complete! Switch to **View Saved Forecasts** to see the result.")
 
-                # Preview the result immediately
-                ci_display = int(ci_levels[0] * 100)
-                fig = forecast_chart(fc_df, ci_level=ci_display)
+                # Preview the result immediately (80% CI)
+                fig = forecast_chart(fc_df, ci_level=80)
                 st.plotly_chart(fig, use_container_width=True)
 
                 # Metrics

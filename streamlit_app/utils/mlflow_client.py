@@ -11,7 +11,6 @@ from ev_load_fc.config import resolve_path
 # Canonical list of all supported model families
 ALL_MODEL_FAMILIES = [
     "Random Forest",
-    "AdaBoost",
     "XGBoost",
     "LightGBM",
     "CatBoost",
@@ -21,7 +20,6 @@ ALL_MODEL_FAMILIES = [
 # Map display name → MLflow tag value
 _FAMILY_TAG = {
     "Random Forest": "RandomForest",
-    "AdaBoost": "AdaBoost",
     "XGBoost": "XGBoost",
     "LightGBM": "LightGBM",
     "CatBoost": "CatBoost",

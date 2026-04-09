@@ -10,27 +10,38 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import streamlit as st
 
 st.set_page_config(
-    page_title="EV Load Forecasting",
+    page_title="Electric Vehicle Supply Equipment (EVSE) Load Forecasting",
     page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.sidebar.title("EV Load Forecasting")
-st.sidebar.markdown(
-    """
-    A machine learning portfolio project demonstrating end-to-end time series forecasting
-    for EV charging load in Palo Alto, CA.
+# st.sidebar.title("EVSE Load Forecasting")
+# st.sidebar.markdown(
+#     """
+#     A machine learning portfolio project demonstrating end-to-end time series forecasting
+#     for EV charging load in Palo Alto, CA.
 
-    ---
-    **Navigate using the pages above.**
-    """
-)
+#     ---
+#     **Navigate using the pages above.**
+#     """
+# )
 
-st.title("EV Load Forecasting")
+st.title("Electric Vehicle Supply Equipment (EVSE) Load Forecasting")
 st.markdown(
     """
-    Welcome! Use the sidebar to navigate between sections of this portfolio project.
+
+    This project aims to use machine learning to model hourly demand for EVSE's in the Palo Alto area using historical data. \\
+    The data covers the period August 2016 - December 2020 and comes from 4 sources:  
+
+    - EVSE charging events data - City of Palo Alto Open Data programme
+    - Traffic events data - MapQuest public API, curated into the LSTW: Large-Scale Traffic and Weather Events Dataset
+    - Weather events data - Meteostat public API, curated into the LSTW: Large-Scale Traffic and Weather Events Dataset
+    - Temperature data - Meteostat public API
+
+    .......
+
+    ## Navigation
 
     | Section | Description |
     |---------|-------------|
